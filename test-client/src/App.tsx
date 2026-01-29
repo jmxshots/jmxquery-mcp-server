@@ -54,6 +54,17 @@ export default function App() {
     setOutput((prev) => prev + (prev ? '\n' : '') + msg);
   };
 
+  const disconnect = useCallback(() => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+    setStatus('disconnected');
+    setEndpointUrl(null);
+    setTools([]);
+    addLog('[System] SSE Disconnected by user.');
+  }, []);
+
   const connect = useCallback(() => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
@@ -233,7 +244,11 @@ export default function App() {
             <div className={`status-badge ${status}`}>
               {status === 'connected' ? 'Connected' : status === 'connecting' ? 'Connecting...' : 'Offline'}
             </div>
-            <button className="btn" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={connect}>Connect</button>
+            {status === 'connected' ? (
+              <button className="btn" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', background: 'var(--error)' }} onClick={disconnect}>Disconnect</button>
+            ) : (
+              <button className="btn" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={connect} disabled={status === 'connecting'}>Connect</button>
+            )}
           </div>
         </header>
 
