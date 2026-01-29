@@ -20,6 +20,7 @@ export default function App() {
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
   const [argumentsJson, setArgumentsJson] = useState('{}');
   const [executionContextCode, setExecutionContextCode] = useState(() => localStorage.getItem('jmxq_ctx') || '');
+  const [scriptContent, setScriptContent] = useState(() => localStorage.getItem('jmxq_script') || '');
   const [output, setOutput] = useState('');
   const [lastResult, setLastResult] = useState<string | null>(null);
   const [extractedText, setExtractedText] = useState<string | null>(null);
@@ -28,10 +29,14 @@ export default function App() {
   const eventSourceRef = useRef<EventSource | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
-  // Persist context
+  // Persist context and script
   useEffect(() => {
     localStorage.setItem('jmxq_ctx', executionContextCode);
   }, [executionContextCode]);
+
+  useEffect(() => {
+    localStorage.setItem('jmxq_script', scriptContent);
+  }, [scriptContent]);
 
   // Auto-scroll logs to bottom
   useEffect(() => {
@@ -233,14 +238,28 @@ export default function App() {
         </header>
 
         <div className="card glass">
-          <label>Active Execution Context</label>
-          <input
-            type="text"
-            value={executionContextCode}
-            onChange={(e) => setExecutionContextCode(e.target.value)}
-            placeholder="e.g. DEFAULT"
-            style={{ padding: '0.5rem', fontSize: '0.875rem' }}
-          />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <div>
+              <label>Active Execution Context</label>
+              <input
+                type="text"
+                value={executionContextCode}
+                onChange={(e) => setExecutionContextCode(e.target.value)}
+                placeholder="e.g. DEFAULT"
+                style={{ padding: '0.5rem', fontSize: '0.875rem' }}
+              />
+            </div>
+            <div>
+              <label>Active JMXQuery Script</label>
+              <textarea
+                rows={4}
+                value={scriptContent}
+                onChange={(e) => setScriptContent(e.target.value)}
+                placeholder="Enter script here..."
+                style={{ padding: '0.5rem', fontSize: '0.875rem', height: '100px', resize: 'vertical' }}
+              />
+            </div>
+          </div>
         </div>
 
         <div className="card glass" style={{ flex: 1, overflowY: 'auto' }}>
@@ -260,6 +279,8 @@ export default function App() {
                     let val = "";
                     if (k === 'executionContextCode' && executionContextCode) {
                       val = executionContextCode;
+                    } else if (k === 'script' && scriptContent && t.name === 'jmxq_executeScript') {
+                      val = scriptContent;
                     }
                     return { ...acc, [k]: val };
                   }, {});
