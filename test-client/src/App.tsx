@@ -19,6 +19,7 @@ export default function App() {
   const [tools, setTools] = useState<Tool[]>([]);
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
   const [argumentsJson, setArgumentsJson] = useState('{}');
+  const [executionContextCode, setExecutionContextCode] = useState(() => localStorage.getItem('jmxq_ctx') || '');
   const [output, setOutput] = useState('');
   const [lastResult, setLastResult] = useState<string | null>(null);
   const [extractedText, setExtractedText] = useState<string | null>(null);
@@ -26,6 +27,11 @@ export default function App() {
   const [endpointUrl, setEndpointUrl] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
+
+  // Persist context
+  useEffect(() => {
+    localStorage.setItem('jmxq_ctx', executionContextCode);
+  }, [executionContextCode]);
 
   // Auto-scroll logs to bottom
   useEffect(() => {
@@ -227,7 +233,21 @@ export default function App() {
         </header>
 
         <div className="card glass">
-          <button className="btn" onClick={listTools}>Refresh Tools List</button>
+          <label>Active Execution Context</label>
+          <input
+            type="text"
+            value={executionContextCode}
+            onChange={(e) => setExecutionContextCode(e.target.value)}
+            placeholder="e.g. DEFAULT"
+            style={{ padding: '0.5rem', fontSize: '0.875rem' }}
+          />
+        </div>
+
+        <div className="card glass" style={{ flex: 1, overflowY: 'auto' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+            <h3>Tools</h3>
+            <button className="btn" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={listTools}>Refresh</button>
+          </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             {tools.map((t) => (
               <div
@@ -235,10 +255,15 @@ export default function App() {
                 className={`tool-item ${selectedTool?.name === t.name ? 'active' : ''}`}
                 onClick={() => {
                   setSelectedTool(t);
-                  setArgumentsJson(JSON.stringify(
-                    Object.keys(t.inputSchema.properties || {}).reduce((acc, k) => ({ ...acc, [k]: "" }), {}),
-                    null, 2
-                  ));
+                  const props = t.inputSchema.properties || {};
+                  const initialArgs = Object.keys(props).reduce((acc, k) => {
+                    let val = "";
+                    if (k === 'executionContextCode' && executionContextCode) {
+                      val = executionContextCode;
+                    }
+                    return { ...acc, [k]: val };
+                  }, {});
+                  setArgumentsJson(JSON.stringify(initialArgs, null, 2));
                 }}
               >
                 <strong>{t.name}</strong>

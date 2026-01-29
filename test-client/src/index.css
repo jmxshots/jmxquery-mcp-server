@@ -170,6 +170,16 @@ textarea:focus {
   -webkit-backdrop-filter: blur(10px);
 }
 
+label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 0.25rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 .tabs {
   display: flex;
   gap: 0.5rem;
