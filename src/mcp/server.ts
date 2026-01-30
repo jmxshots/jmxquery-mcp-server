@@ -29,6 +29,11 @@ export function createMcpServer() {
         return {
             tools: [
                 {
+                    name: 'jmxq_ping',
+                    description: 'A simple connectivity test that returns "pong".',
+                    inputSchema: { type: 'object', properties: {} },
+                },
+                {
                     name: 'jmxq_getGrammar',
                     description: 'Returns the JMX-QUERY grammar (EBNF).',
                     inputSchema: { type: 'object', properties: {} },
@@ -90,6 +95,9 @@ export function createMcpServer() {
         try {
             let result: any;
             switch (name) {
+                case 'jmxq_ping':
+                    result = { status: 'ok', message: 'pong', timestamp: new Date().toISOString() };
+                    break;
                 case 'jmxq_getGrammar':
                     result = await bcClient.callAction('JMXQ_ApiInfoService', 'GetGrammar', {});
                     break;

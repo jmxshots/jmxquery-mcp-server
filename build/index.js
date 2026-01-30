@@ -27,7 +27,7 @@ fastify.addHook('onReady', () => {
 // Create the core MCP server instance
 const mcpServer = createMcpServer();
 // --- SSE Transport (for HTTP/Web Clients) ---
-let activeTransport = null;
+const activeTransports = new Map();
 fastify.get('/mcp/sse', async (request, reply) => {
     logger.info('New SSE Connection attempt');
     try {
@@ -35,15 +35,17 @@ fastify.get('/mcp/sse', async (request, reply) => {
         const res = reply.raw;
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setTimeout(0);
+        // The SDK will automatically append ?sessionId=... to this endpoint
         const transport = new SSEServerTransport('/mcp/messages', res);
-        activeTransport = transport;
+        const sessionId = transport.sessionId;
+        activeTransports.set(sessionId, transport);
+        logger.info({ sessionId }, 'New SSE Transport created');
         request.raw.on('close', () => {
-            logger.info('SSE Connection Closed');
-            if (activeTransport === transport)
-                activeTransport = null;
+            logger.info({ sessionId }, 'SSE Connection Closed');
+            activeTransports.delete(sessionId);
         });
         await mcpServer.connect(transport);
-        logger.info('MCP Server SSE session connected');
+        logger.info({ sessionId }, 'MCP Server SSE session connected');
     }
     catch (error) {
         logger.error({ error }, 'Error in SSE connection handler');
@@ -63,22 +65,21 @@ fastify.post('/mcp/messages', async (request, reply) => {
         reply.code(204).send();
         return;
     }
-    if (!activeTransport) {
-        logger.warn('POST /mcp/messages: No active SSE transport');
-        reply.code(400).send({ error: 'SERVER_NO_ACTIVE_TRANSPORT' });
+    const sessionId = request.query?.sessionId;
+    const transport = sessionId ? activeTransports.get(sessionId) : null;
+    if (!transport) {
+        logger.warn({ sessionId }, 'POST /mcp/messages: No active transport found for session');
+        reply.code(400).send({ error: 'SERVER_NO_ACTIVE_TRANSPORT', sessionId });
         return;
     }
     try {
         const message = request.body;
-        if (activeTransport.onmessage) {
-            Promise.resolve(activeTransport.onmessage(message)).catch(err => {
-                logger.error({ err, msgId: message.id }, 'Async message processing failed');
-            });
-        }
+        // Use the SDK's handleMessage for better robustness
+        await transport.handleMessage(message);
         reply.code(202).send('Accepted');
     }
     catch (error) {
-        logger.error({ error }, 'Error accepting POST message');
+        logger.error({ error, sessionId }, 'Error accepting POST message');
         if (!reply.raw.headersSent) {
             reply.code(500).send({ error: `SERVER_POST_ERROR: ${error.message}` });
         }
