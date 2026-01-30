@@ -34,14 +34,15 @@ export class BcClient {
                 responseBody = this.callViaPowerShell(url.toString(), payload, requestId);
             } else if (config.BC_AUTH_TYPE === 'NTLM') {
                 // Use node-client-ntlm for NTLM
-                const ntlmClient = new NtlmClient(
+                // We use any here because the library types are unreliable/missing
+                const ntlmClient = new (NtlmClient as any)(
                     config.BC_USERNAME || '',
                     config.BC_PASSWORD || '',
                     '', // workstation
                     ''  // domain
                 );
-                const response = await ntlmClient.request({
-                    uri: url.toString(),
+                const response = await (ntlmClient as any).request({
+                    url: url.toString(),
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
