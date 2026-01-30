@@ -1,12 +1,14 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createMcpServer } from './mcp/server.js';
 import { config } from './config.js';
 import { pino } from 'pino';
+// IMPORTANT: Logs MUST go to stderr when using Stdio transport
 const logger = pino({
     level: config.LOG_LEVEL,
-});
+}, process.stderr);
 const fastify = Fastify({
     logger: false,
     connectionTimeout: 0,
@@ -22,28 +24,26 @@ fastify.addHook('onReady', () => {
     fastify.server.headersTimeout = 0;
     fastify.server.requestTimeout = 0;
 });
-// Store only ONE active transport for simplicity
+// Create the core MCP server instance
+const mcpServer = createMcpServer();
+// --- SSE Transport (for HTTP/Web Clients) ---
 let activeTransport = null;
 fastify.get('/mcp/sse', async (request, reply) => {
     logger.info('New SSE Connection attempt');
     try {
-        // Hijack gives us control over the raw response for Fastify 5
         reply.hijack();
         const res = reply.raw;
-        // Set CORS. Standard SSE headers will be set by SSEServerTransport.start()
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setTimeout(0);
         const transport = new SSEServerTransport('/mcp/messages', res);
-        const server = createMcpServer();
         activeTransport = transport;
         request.raw.on('close', () => {
             logger.info('SSE Connection Closed');
             if (activeTransport === transport)
                 activeTransport = null;
         });
-        // This calls transport.start() internally which sends headers and the initial endpoint message
-        await server.connect(transport);
-        logger.info('MCP Server session connected');
+        await mcpServer.connect(transport);
+        logger.info('MCP Server SSE session connected');
     }
     catch (error) {
         logger.error({ error }, 'Error in SSE connection handler');
@@ -56,7 +56,6 @@ fastify.get('/mcp/sse', async (request, reply) => {
     }
 });
 fastify.post('/mcp/messages', async (request, reply) => {
-    // Manually set CORS headers for the POST response
     reply.raw.setHeader('Access-Control-Allow-Origin', '*');
     reply.raw.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
     reply.raw.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-MCP-ClientId');
@@ -70,16 +69,12 @@ fastify.post('/mcp/messages', async (request, reply) => {
         return;
     }
     try {
-        // Since Fastify already parsed the body, we don't use transport.handlePostMessage.
-        // We push the parsed message directly to the transport.
         const message = request.body;
         if (activeTransport.onmessage) {
-            // Processing async to allow 202 Accepted response immediately
             Promise.resolve(activeTransport.onmessage(message)).catch(err => {
                 logger.error({ err, msgId: message.id }, 'Async message processing failed');
             });
         }
-        logger.debug({ msgId: message.id }, 'POST message accepted');
         reply.code(202).send('Accepted');
     }
     catch (error) {
@@ -89,12 +84,28 @@ fastify.post('/mcp/messages', async (request, reply) => {
         }
     }
 });
+// --- Stdio Transport (for AI Agents like Claude Desktop/Cline) ---
+const startStdio = async () => {
+    // Check if we are in a TTY. If not, we probably want Stdio support.
+    // However, it's safer to always try to connect it if it's not a terminal
+    // or if the user explicitly wants it. For MCP servers, adding it doesn't hurt.
+    try {
+        const stdioTransport = new StdioServerTransport();
+        await mcpServer.connect(stdioTransport);
+        logger.info('MCP Server Stdio transport connected');
+    }
+    catch (err) {
+        logger.error({ err }, 'Failed to start Stdio transport');
+    }
+};
 const start = async () => {
     try {
+        // Start Stdio transport in parallel
+        startStdio();
+        // Start HTTP server for SSE
         await fastify.listen({ port: config.MCP_PORT, host: config.MCP_HOST });
         logger.info(`JMX-QUERY MCP Server running at http://${config.MCP_HOST}:${config.MCP_PORT}`);
-        logger.info(`SSE Endpoint: http://${config.MCP_HOST}:${config.MCP_PORT}/mcp/sse?clientId=<id>`);
-        logger.info(`Message Endpoint: http://${config.MCP_HOST}:${config.MCP_PORT}/mcp/messages (requires X-MCP-ClientId header)`);
+        logger.info(`SSE Endpoint: http://${config.MCP_HOST}:${config.MCP_PORT}/mcp/sse`);
     }
     catch (err) {
         logger.error(err);
