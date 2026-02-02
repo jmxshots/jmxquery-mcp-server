@@ -30,6 +30,7 @@ The server is configured via environment variables in a `.env` file.
 | `MCP_HOST` | Host the MCP server should bind to. | `127.0.0.1` |
 | `MCP_PORT` | Port the MCP server should listen on. | `4000` |
 | `LOG_LEVEL` | Logging verbosity (`debug`, `info`, `warn`, `error`). | `info` |
+| `MCP_API_KEY` | Optional: API key for securing SSE/Web access. | `your-secret-key` |
 
 ## Windows Service Integration
 
@@ -80,8 +81,9 @@ A web-based test client is available in the `test-client` directory to verify th
 
 ## API Endpoints
 
-- **SSE**: `GET /mcp/sse?clientId=<any-id>`
-- **Messages**: `POST /mcp/messages` (requires `X-MCP-ClientId` header)
+- **SSE (Initial Connect)**: `GET /mcp/sse?apiKey=<your-key>`
+- **Messages (JSON-RPC)**: `POST /mcp/messages?sessionId=<session-id>`
+  - Requires `Authorization: Bearer <your-key>` header if `MCP_API_KEY` is set.
 
 ## Client Integration Examples
 

@@ -2,8 +2,6 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
-const MCP_SERVER_URL = 'http://127.0.0.1:4000';
-
 interface Tool {
   name: string;
   description: string;
@@ -16,6 +14,7 @@ interface Tool {
 
 export default function App() {
   const [status, setStatus] = useState<'connected' | 'disconnected' | 'connecting'>('disconnected');
+  const [mcpServerUrl, setMcpServerUrl] = useState(() => localStorage.getItem('mcp_server_url') || 'http://127.0.0.1:4000');
   const [tools, setTools] = useState<Tool[]>([]);
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
   const [argumentsJson, setArgumentsJson] = useState('{}');
@@ -26,10 +25,11 @@ export default function App() {
   const [extractedText, setExtractedText] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'raw' | 'value'>('value');
   const [endpointUrl, setEndpointUrl] = useState<string | null>(null);
+  const [apiKey, setApiKey] = useState('');
   const eventSourceRef = useRef<EventSource | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
-  // Persist context and script
+  // Persist context, script, and URL
   useEffect(() => {
     localStorage.setItem('jmxq_ctx', executionContextCode);
   }, [executionContextCode]);
@@ -37,6 +37,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('jmxq_script', scriptContent);
   }, [scriptContent]);
+
+  useEffect(() => {
+    localStorage.setItem('mcp_server_url', mcpServerUrl);
+  }, [mcpServerUrl]);
 
   // Auto-scroll logs to bottom
   useEffect(() => {
@@ -46,9 +50,9 @@ export default function App() {
   }, [output]);
 
   const getMessageUrl = useCallback(() => {
-    if (endpointUrl) return `${MCP_SERVER_URL}${endpointUrl}`;
-    return `${MCP_SERVER_URL}/mcp/messages`;
-  }, [endpointUrl]);
+    if (endpointUrl) return `${mcpServerUrl}${endpointUrl}`;
+    return `${mcpServerUrl}/mcp/messages`;
+  }, [endpointUrl, mcpServerUrl]);
 
   const addLog = (msg: string) => {
     setOutput((prev) => prev + (prev ? '\n' : '') + msg);
@@ -73,7 +77,11 @@ export default function App() {
     setStatus('connecting');
     setEndpointUrl(null);
     setTools([]);
-    const es = new EventSource(`${MCP_SERVER_URL}/mcp/sse`);
+
+    const url = new URL(`${mcpServerUrl}/mcp/sse`);
+    if (apiKey) url.searchParams.set('apiKey', apiKey.trim());
+
+    const es = new EventSource(url.toString());
 
     es.onopen = () => {
       setStatus('connected');
@@ -83,7 +91,7 @@ export default function App() {
     es.onerror = (err) => {
       console.error('SSE Error:', err);
       setStatus('disconnected');
-      addLog('[Error] SSE Connection lost or failed.');
+      addLog('[Error] SSE Connection lost or failed. Check API Key if required.');
     };
 
     es.onmessage = (event) => {
@@ -121,7 +129,7 @@ export default function App() {
     });
 
     eventSourceRef.current = es;
-  }, []);
+  }, [apiKey]);
 
   useEffect(() => {
     return () => {
@@ -136,12 +144,20 @@ export default function App() {
     }
   }, [status, endpointUrl]);
 
+  const getHeaders = () => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey.trim()}`;
+    }
+    return headers;
+  };
+
   const initialize = async () => {
     addLog('[System] Sending Initialization request...');
     try {
       const resp = await fetch(getMessageUrl(), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getHeaders(),
         body: JSON.stringify({
           jsonrpc: '2.0',
           id: 'init-req',
@@ -163,7 +179,7 @@ export default function App() {
 
       await fetch(getMessageUrl(), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getHeaders(),
         body: JSON.stringify({
           jsonrpc: '2.0',
           method: 'notifications/initialized',
@@ -182,7 +198,7 @@ export default function App() {
     try {
       const resp = await fetch(getMessageUrl(), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getHeaders(),
         body: JSON.stringify({
           jsonrpc: '2.0',
           id: 'list-tools-req',
@@ -209,7 +225,7 @@ export default function App() {
       const args = JSON.parse(argumentsJson);
       const resp = await fetch(getMessageUrl(), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getHeaders(),
         body: JSON.stringify({
           jsonrpc: '2.0',
           id: `call-${Date.now()}`,
@@ -254,6 +270,26 @@ export default function App() {
 
         <div className="card glass">
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <div>
+              <label>MCP Server URL</label>
+              <input
+                type="text"
+                value={mcpServerUrl}
+                onChange={(e) => setMcpServerUrl(e.target.value)}
+                placeholder="http://127.0.0.1:4000"
+                style={{ padding: '0.5rem', fontSize: '0.875rem' }}
+              />
+            </div>
+            <div>
+              <label>MCP API Key (Optional)</label>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="Enter API Key if required"
+                style={{ padding: '0.5rem', fontSize: '0.875rem' }}
+              />
+            </div>
             <div>
               <label>Active Execution Context</label>
               <input

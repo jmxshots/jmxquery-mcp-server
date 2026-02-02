@@ -12,6 +12,7 @@ const configSchema = z.object({
     MCP_PORT: z.coerce.number().default(3000),
     LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
     HTTP_TIMEOUT_MS: z.coerce.number().default(60000),
+    MCP_API_KEY: z.string().optional(),
 });
 export const config = configSchema.parse({
     BC_ODATA_BASE_URL: process.env.BC_ODATA_BASE_URL,
@@ -24,4 +25,5 @@ export const config = configSchema.parse({
     MCP_PORT: process.env.MCP_PORT,
     LOG_LEVEL: process.env.LOG_LEVEL,
     HTTP_TIMEOUT_MS: process.env.HTTP_TIMEOUT_MS,
+    MCP_API_KEY: process.env.MCP_API_KEY,
 });

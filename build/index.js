@@ -26,10 +26,48 @@ fastify.addHook('onReady', () => {
 });
 // Create the core MCP server instance
 const mcpServer = createMcpServer();
+// --- Authentication Middleware ---
+const isValidApiKey = (request) => {
+    const configKey = config.MCP_API_KEY?.trim();
+    // If not configured, allow all
+    if (!configKey) {
+        return true;
+    }
+    const authHeader = request.headers['authorization'] || request.headers['Authorization'];
+    const bearerToken = (typeof authHeader === 'string' && authHeader.startsWith('Bearer '))
+        ? authHeader.substring(7).trim()
+        : null;
+    const queryKey = request.query?.apiKey;
+    const trimmedQueryKey = (typeof queryKey === 'string') ? queryKey.trim() : null;
+    const providedKey = bearerToken || trimmedQueryKey;
+    const isValid = providedKey === configKey;
+    logger.info({
+        path: request.url,
+        hasAuthHeader: !!authHeader,
+        hasQueryKey: !!queryKey,
+        providedKeyLength: providedKey?.length || 0,
+        expectedKeyLength: configKey.length,
+        isValid
+    }, 'Authentication Validation Detail');
+    if (!isValid) {
+        logger.warn({
+            path: request.url,
+            providedKeyType: typeof providedKey
+        }, 'API Key Validation Failed');
+    }
+    return isValid;
+};
 // --- SSE Transport (for HTTP/Web Clients) ---
 const activeTransports = new Map();
 fastify.get('/mcp/sse', async (request, reply) => {
     logger.info('New SSE Connection attempt');
+    if (!isValidApiKey(request)) {
+        logger.warn('Unauthorized SSE Connection attempt');
+        reply.code(401)
+            .header('Access-Control-Allow-Origin', '*')
+            .send({ error: 'Unauthorized', message: 'Invalid or missing API Key' });
+        return;
+    }
     try {
         reply.hijack();
         const res = reply.raw;
@@ -60,9 +98,16 @@ fastify.get('/mcp/sse', async (request, reply) => {
 fastify.post('/mcp/messages', async (request, reply) => {
     reply.raw.setHeader('Access-Control-Allow-Origin', '*');
     reply.raw.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
-    reply.raw.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-MCP-ClientId');
+    reply.raw.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-MCP-ClientId, Authorization');
     if (request.method === 'OPTIONS') {
         reply.code(204).send();
+        return;
+    }
+    if (!isValidApiKey(request)) {
+        logger.warn('Unauthorized Message attempt');
+        reply.code(401)
+            .header('Access-Control-Allow-Origin', '*')
+            .send({ error: 'Unauthorized', message: 'Invalid or missing API Key' });
         return;
     }
     const sessionId = request.query?.sessionId;
@@ -107,6 +152,11 @@ const start = async () => {
         await fastify.listen({ port: config.MCP_PORT, host: config.MCP_HOST });
         logger.info(`JMX-QUERY MCP Server running at http://${config.MCP_HOST}:${config.MCP_PORT}`);
         logger.info(`SSE Endpoint: http://${config.MCP_HOST}:${config.MCP_PORT}/mcp/sse`);
+        logger.info({
+            securityActive: !!config.MCP_API_KEY,
+            keyDefined: config.MCP_API_KEY !== undefined,
+            keyLength: config.MCP_API_KEY?.length || 0
+        }, 'Authentication status');
     }
     catch (err) {
         logger.error(err);
