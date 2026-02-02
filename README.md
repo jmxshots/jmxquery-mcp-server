@@ -124,6 +124,27 @@ If you are using the server as a Windows Service or standalone process via SSE:
 }
 ```
 
+## Testing with MCP Inspector
+
+The [MCP Inspector](https://modelcontextprotocol.io/docs/tools/inspector) is an interactive tool for testing Model Context Protocol servers.
+
+### Run with compiled server
+1. Build the project: `npm run build`
+2. Run the inspector: `npm run inspect`
+
+### Run in development mode (TypeScript)
+This runs the server directly using `tsx` without a separate build step:
+`npm run inspect:dev`
+
+### Run against running SSE server
+If your server is already running (e.g., via `npm run dev` or as a service), you can connect the inspector via SSE:
+`npm run inspect:sse`
+
+> [!NOTE]
+> If `MCP_API_KEY` is set in your `.env`, ensure the `inspect:sse` script in `package.json` includes the correct `Authorization` header (e.g., `Bearer your-secret-key-123`). You can also add it manually in the Inspector UI under **Custom Headers**.
+
+The inspector will open a web interface in your browser (usually at `http://localhost:5173`) where you can list and test the available tools and resources.
+
 ## Testing with cURL
 
 See `MCP_SERVER_PLAN.md` for detailed cURL commands to smoke test the SSE and Message endpoints.
