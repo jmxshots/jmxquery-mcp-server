@@ -83,6 +83,45 @@ A web-based test client is available in the `test-client` directory to verify th
 - **SSE**: `GET /mcp/sse?clientId=<any-id>`
 - **Messages**: `POST /mcp/messages` (requires `X-MCP-ClientId` header)
 
+## Client Integration Examples
+
+To use this server with an MCP client (e.g., Cursor, Claude Dev, or VS Code), use the following configuration examples.
+
+### Claude Desktop / Cline / Roo Code (Stdio)
+
+If you want to use the server via Stdio (standard input/output), use this configuration in your `mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "jmxq-bc": {
+      "command": "node",
+      "args": ["c:/Entwicklung/Antigravity/JS-JMXQuery-MCPServer/build/index.js"],
+      "env": {
+        "BC_ODATA_BASE_URL": "http://bc-server:7048/BC220/ODataV4/",
+        "BC_AUTH_TYPE": "NTLM",
+        "BC_USERNAME": "domain\\user",
+        "BC_PASSWORD": "your_password"
+      }
+    }
+  }
+}
+```
+
+### SSE (for Web-based Clients or Tools)
+
+If you are using the server as a Windows Service or standalone process via SSE:
+
+**URL**: `http://localhost:4000/mcp/sse?clientId=my-ai-agent`
+
+```json
+{
+  "name": "JMXQuery MCP-Server",
+  "transport": "sse",
+  "url": "http://localhost:4000/mcp/sse?clientId=cursor-client"
+}
+```
+
 ## Testing with cURL
 
 See `MCP_SERVER_PLAN.md` for detailed cURL commands to smoke test the SSE and Message endpoints.
