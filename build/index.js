@@ -5,10 +5,19 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { createMcpServer } from './mcp/server.js';
 import { config } from './config.js';
 import { pino } from 'pino';
-// IMPORTANT: Logs MUST go to stderr when using Stdio transport
+// IMPORTANT: Logs MUST go to stderr when using Stdio transport to avoid corrupting the protocol
 const logger = pino({
     level: config.LOG_LEVEL,
-}, process.stderr);
+    transport: {
+        target: 'pino-pretty',
+        options: {
+            colorize: true,
+            ignore: 'pid,hostname',
+            translateTime: 'HH:MM:ss Z',
+            destination: 2, // 2 is stderr
+        },
+    },
+});
 const fastify = Fastify({
     logger: false,
     connectionTimeout: 0,
@@ -152,9 +161,15 @@ const start = async () => {
         await fastify.listen({ port: config.MCP_PORT, host: config.MCP_HOST });
         logger.info(`JMX-QUERY MCP Server running at http://${config.MCP_HOST}:${config.MCP_PORT}`);
         logger.info(`SSE Endpoint: http://${config.MCP_HOST}:${config.MCP_PORT}/mcp/sse`);
+        const isAuthActive = !!config.MCP_API_KEY;
+        if (isAuthActive) {
+            logger.info('*** SECURITY: API Key Authentication is ENABLED ***');
+        }
+        else {
+            logger.warn('*** SECURITY: API Key Authentication is DISABLED (Unsecured) ***');
+        }
         logger.info({
-            securityActive: !!config.MCP_API_KEY,
-            keyDefined: config.MCP_API_KEY !== undefined,
+            securityActive: isAuthActive,
             keyLength: config.MCP_API_KEY?.length || 0
         }, 'Authentication status');
     }
