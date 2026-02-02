@@ -1,0 +1,32 @@
+<service>
+	<id>jmxquerymcpserver.exe</id>
+	<name>JMX-QUERY MCP Server</name>
+	<description>JMX-QUERY Model Context Protocol Server for Business Central</description>
+	<executable>C:\Program Files\nodejs\node.exe</executable>
+	<argument>--harmony</argument>
+	<argument>--max_old_space_size=4096</argument>
+	<argument>c:\Entwicklung\Antigravity\JS-JMXQuery-MCPServer\node_modules\node-windows\lib\wrapper.js</argument>
+	<argument>--file</argument>
+	<argument>c:\Entwicklung\Antigravity\JS-JMXQuery-MCPServer\build\index.js</argument>
+	<argument>--scriptoptions=</argument>
+	<argument>--log</argument>
+	<argument>JMX-QUERY MCP Server wrapper</argument>
+	<argument>--grow</argument>
+	<argument>0.25</argument>
+	<argument>--wait</argument>
+	<argument>1</argument>
+	<argument>--maxrestarts</argument>
+	<argument>3</argument>
+	<argument>--abortonerror</argument>
+	<argument>n</argument>
+	<argument>--stopparentfirst</argument>
+	<argument>undefined</argument>
+	<logmode>rotate</logmode>
+	<stoptimeout>30sec</stoptimeout>
+	<serviceaccount>
+		<domain>LENOVO-JUM</domain>
+		<user>LocalSystem</user>
+		<password></password>
+	</serviceaccount>
+	<workingdirectory>c:\Entwicklung\Antigravity\JS-JMXQuery-MCPServer</workingdirectory>
+</service>
