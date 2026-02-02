@@ -12,7 +12,7 @@
     "service:uninstall": "node scripts/uninstall-service.js",
     "inspect": "npx @modelcontextprotocol/inspector node build/index.js",
     "inspect:dev": "npx @modelcontextprotocol/inspector tsx src/index.ts",
-    "inspect:sse": "npx @modelcontextprotocol/inspector --transport sse --server-url http://localhost:5000/mcp/sse --header \"Authorization: Bearer your-secret-key-123\""
+    "inspect:sse": "npx @modelcontextprotocol/inspector --transport sse --server-url http://localhost:5000/mcp/sse?apiKey=your-secret-key-123"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

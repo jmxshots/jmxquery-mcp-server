@@ -83,7 +83,14 @@ fastify.get('/mcp/sse', async (request, reply) => {
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setTimeout(0);
         // The SDK will automatically append ?sessionId=... to this endpoint
-        const transport = new SSEServerTransport('/mcp/messages', res);
+        // If an API Key is configured, we append it here so that clients (like MCP Inspector)
+        // automatically use it for all subsequent POST requests.
+        const configKey = config.MCP_API_KEY?.trim();
+        const endpointBase = '/mcp/messages';
+        const messageEndpoint = configKey
+            ? `${endpointBase}?apiKey=${encodeURIComponent(configKey)}`
+            : endpointBase;
+        const transport = new SSEServerTransport(messageEndpoint, res);
         const sessionId = transport.sessionId;
         activeTransports.set(sessionId, transport);
         logger.info({ sessionId }, 'New SSE Transport created');

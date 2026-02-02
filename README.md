@@ -141,7 +141,11 @@ If your server is already running (e.g., via `npm run dev` or as a service), you
 `npm run inspect:sse`
 
 > [!NOTE]
-> If `MCP_API_KEY` is set in your `.env`, ensure the `inspect:sse` script in `package.json` includes the correct `Authorization` header (e.g., `Bearer your-secret-key-123`). You can also add it manually in the Inspector UI under **Custom Headers**.
+> Authentication for SSE/HTTP is supported via two methods:
+> 1. **Query Parameter**: Provide `apiKey` in the URL (e.g., `?apiKey=your-key`). This is case-sensitive.
+> 2. **Authorization Header**: Send a `Bearer your-key` token in the `Authorization` header.
+>
+> The server automatically advertises the query parameter to clients like the MCP Inspector, but you can also manually configure headers in the Inspector UI if preferred.
 
 The inspector will open a web interface in your browser (usually at `http://localhost:5173`) where you can list and test the available tools and resources.
 
