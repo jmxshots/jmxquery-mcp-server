@@ -215,3 +215,33 @@ const start = async () => {
 };
 
 start();
+
+// Graceful shutdown handler
+const shutdown = async (signal: string) => {
+    logger.info({ signal }, 'Received shutdown signal, closing server...');
+
+    try {
+        // Close all active SSE transports
+        for (const [sessionId, transport] of activeTransports.entries()) {
+            try {
+                await transport.close();
+                logger.info({ sessionId }, 'SSE Transport closed');
+            } catch (err) {
+                logger.error({ err, sessionId }, 'Error closing SSE transport');
+            }
+        }
+        activeTransports.clear();
+
+        // Close the Fastify server
+        await fastify.close();
+        logger.info('Fastify server closed successfully');
+
+        process.exit(0);
+    } catch (err) {
+        logger.error({ err }, 'Error during shutdown');
+        process.exit(1);
+    }
+};
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
