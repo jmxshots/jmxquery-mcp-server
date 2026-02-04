@@ -373,19 +373,19 @@ export default function App() {
             )}
           </div>
 
-          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {/* System Logs */}
             <div className="output-area" ref={logRef} style={{ flex: 'none', maxHeight: '120px', fontSize: '0.75rem', opacity: 0.8 }}>
               {output}
             </div>
 
             {/* Content Section */}
-            <div style={{ flex: 1, minHeight: 0 }}>
+            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
               {activeTab === 'raw' && lastResult && (
                 <SyntaxHighlighter
                   language="json"
                   style={atomDark}
-                  customStyle={{ margin: 0, borderRadius: '8px', fontSize: '0.875rem', backgroundColor: '#111827', minHeight: '100%' }}
+                  customStyle={{ margin: 0, borderRadius: '8px', fontSize: '0.875rem', backgroundColor: '#111827', flex: 1, overflow: 'auto' }}
                 >
                   {lastResult}
                 </SyntaxHighlighter>
@@ -395,7 +395,7 @@ export default function App() {
                 <SyntaxHighlighter
                   language="text"
                   style={atomDark}
-                  customStyle={{ margin: 0, borderRadius: '8px', fontSize: '0.875rem', backgroundColor: '#111827', minHeight: '100%' }}
+                  customStyle={{ margin: 0, borderRadius: '8px', fontSize: '0.875rem', backgroundColor: '#111827', flex: 1, overflow: 'auto' }}
                 >
                   {extractedText}
                 </SyntaxHighlighter>
