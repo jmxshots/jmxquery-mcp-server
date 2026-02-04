@@ -103,6 +103,7 @@ export class BcClient {
         // Note: No need for manual escaping of quotes here because it's Base64 encoded
         const psScript = `
             $ProgressPreference = 'SilentlyContinue';
+            [Console]::OutputEncoding = [System.Text.Encoding]::UTF8;
             $headers = @{ 
                 "Accept" = "application/json"; 
                 "X-Request-ID" = "${requestId}" 
