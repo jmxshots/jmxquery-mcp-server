@@ -1,15 +1,18 @@
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
+
 :root {
-  --primary: #6366f1;
-  --primary-hover: #4f46e5;
-  --bg: #0f172a;
-  --bg-card: #1e293b;
-  --text: #f8fafc;
-  --text-muted: #94a3b8;
-  --success: #22c55e;
-  --error: #ef4444;
-  --border: #334155;
-  --radius: 12px;
-  --font-main: 'Outfit', 'Inter', system-ui, sans-serif;
+  --primary: #BB86FC;
+  --primary-hover: #D7B7FD;
+  --secondary: #03DAC6;
+  --bg: #121212;
+  --bg-card: #1e1e1e;
+  --text: #ffffff;
+  --text-muted: #b0b0b0;
+  --success: #03dac6;
+  --error: #cf6679;
+  --border: #333333;
+  --radius: 4px;
+  --font-main: 'Roboto', 'Inter', system-ui, sans-serif;
 }
 
 * {
@@ -108,40 +111,66 @@ h3 {
   border-color: var(--primary);
 }
 
+.card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  padding: 1.5rem;
+  border-radius: var(--radius);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.card.glass {
+  background-color: var(--bg-card);
+  backdrop-filter: none;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
 .btn {
-  background: var(--primary);
-  color: white;
+  background-color: var(--primary);
+  color: #000000;
   border: none;
   padding: 0.75rem 1.5rem;
-  border-radius: 8px;
-  font-weight: 600;
+  border-radius: var(--radius);
+  font-family: var(--font-main);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 1.25px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color 0.2s, box-shadow 0.2s;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
+  font-size: 0.8125rem;
+  height: auto;
 }
 
 .btn:hover {
-  background: var(--primary-hover);
-  transform: translateY(-1px);
+  background-color: var(--primary-hover);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
 }
 
 .btn:disabled {
-  opacity: 0.5;
+  background-color: #333333;
+  color: #666666;
+  box-shadow: none;
   cursor: not-allowed;
-  transform: none;
 }
 
 input,
 textarea {
-  background: rgba(0, 0, 0, 0.2);
+  background-color: #2c2c2c;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.75rem;
-  color: white;
-  font-family: inherit;
+  color: var(--text);
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius);
+  font-family: var(--font-main);
+  transition: border-color 0.2s, box-shadow 0.2s;
+  font-size: 1rem;
   width: 100%;
 }
 
@@ -149,7 +178,7 @@ input:focus,
 textarea:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+  box-shadow: 0 0 0 2px rgba(187, 134, 252, 0.2);
 }
 
 .output-area {

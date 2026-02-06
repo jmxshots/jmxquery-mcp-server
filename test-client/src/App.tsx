@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import ChatClient from './ChatClient';
 
 interface Tool {
   name: string;
@@ -26,8 +27,13 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'raw' | 'value'>('value');
   const [endpointUrl, setEndpointUrl] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState('');
+  const [activeView, setActiveView] = useState<'admin' | 'chat'>(() => (localStorage.getItem('active_view') as any) || 'admin');
   const eventSourceRef = useRef<EventSource | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    localStorage.setItem('active_view', activeView);
+  }, [activeView]);
 
   // Persist context, script, and URL
   useEffect(() => {
@@ -255,8 +261,14 @@ export default function App() {
     <div className="container">
       <div className="sidebar">
         <header>
-          <h1>JMX-QUERY Admin</h1>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <h1 style={{ marginBottom: 0 }}>JMX-QUERY</h1>
+            <div className="tabs" style={{ marginBottom: 0, borderBottom: 'none' }}>
+              <div className={`tab ${activeView === 'admin' ? 'active' : ''}`} onClick={() => setActiveView('admin')}>Admin</div>
+              <div className={`tab ${activeView === 'chat' ? 'active' : ''}`} onClick={() => setActiveView('chat')}>Chat</div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginTop: '1rem' }}>
             <div className={`status-badge ${status}`}>
               {status === 'connected' ? 'Connected' : status === 'connecting' ? 'Connecting...' : 'Offline'}
             </div>
@@ -268,147 +280,160 @@ export default function App() {
           </div>
         </header>
 
-        <div className="card glass">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            <div>
-              <label>MCP Server URL</label>
-              <input
-                type="text"
-                value={mcpServerUrl}
-                onChange={(e) => setMcpServerUrl(e.target.value)}
-                placeholder="http://127.0.0.1:4000"
-                style={{ padding: '0.5rem', fontSize: '0.875rem' }}
-              />
-            </div>
-            <div>
-              <label>MCP API Key (Optional)</label>
-              <input
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="Enter API Key if required"
-                style={{ padding: '0.5rem', fontSize: '0.875rem' }}
-              />
-            </div>
-            <div>
-              <label>Active Execution Context</label>
-              <input
-                type="text"
-                value={executionContextCode}
-                onChange={(e) => setExecutionContextCode(e.target.value)}
-                placeholder="e.g. DEFAULT"
-                style={{ padding: '0.5rem', fontSize: '0.875rem' }}
-              />
-            </div>
-            <div>
-              <label>Active JMXQuery Script</label>
-              <textarea
-                rows={4}
-                value={scriptContent}
-                onChange={(e) => setScriptContent(e.target.value)}
-                placeholder="Enter script here..."
-                style={{ padding: '0.5rem', fontSize: '0.875rem', height: '100px', resize: 'vertical' }}
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="card glass" style={{ flex: 1, overflowY: 'auto' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-            <h3>Tools</h3>
-            <button className="btn" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={listTools}>Refresh</button>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            {tools.map((t) => (
-              <div
-                key={t.name}
-                className={`tool-item ${selectedTool?.name === t.name ? 'active' : ''}`}
-                onClick={() => {
-                  setSelectedTool(t);
-                  const props = t.inputSchema.properties || {};
-                  const initialArgs = Object.keys(props).reduce((acc, k) => {
-                    let val = "";
-                    if (k === 'executionContextCode' && executionContextCode) {
-                      val = executionContextCode;
-                    } else if (k === 'script' && scriptContent && t.name === 'jmxq_executeScript') {
-                      val = scriptContent;
-                    }
-                    return { ...acc, [k]: val };
-                  }, {});
-                  setArgumentsJson(JSON.stringify(initialArgs, null, 2));
-                }}
-              >
-                <strong>{t.name}</strong>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t.description}</p>
+        {activeView === 'admin' ? (
+          <>
+            <div className="card glass">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <div>
+                  <label>Service URL</label>
+                  <input
+                    type="text"
+                    value={endpointUrl || ''}
+                    onChange={(e) => setEndpointUrl(e.target.value)}
+                    placeholder="e.g. http://localhost:7048/BC/ODataV4/..."
+                  />
+                </div>
+                <div>
+                  <label>API Key</label>
+                  <input
+                    type="password"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    placeholder="Enter API Key if required"
+                  />
+                </div>
+                <div>
+                  <label>Active Execution Context</label>
+                  <input
+                    type="text"
+                    value={executionContextCode}
+                    onChange={(e) => setExecutionContextCode(e.target.value)}
+                    placeholder="e.g. DEFAULT"
+                  />
+                </div>
+                <div>
+                  <label>Active JMXQuery Script</label>
+                  <textarea
+                    rows={4}
+                    value={scriptContent}
+                    onChange={(e) => setScriptContent(e.target.value)}
+                    placeholder="Enter script here..."
+                    style={{ height: '100px', resize: 'vertical' }}
+                  />
+                </div>
               </div>
-            ))}
+            </div>
+
+            <div className="card glass" style={{ flex: 1, overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <h3>Tools</h3>
+                <button className="btn" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={listTools}>Refresh</button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {tools.map((t) => (
+                  <div
+                    key={t.name}
+                    className={`tool-item ${selectedTool?.name === t.name ? 'active' : ''}`}
+                    onClick={() => {
+                      setSelectedTool(t);
+                      const props = t.inputSchema.properties || {};
+                      const initialArgs = Object.keys(props).reduce((acc, k) => {
+                        let val = "";
+                        if (k === 'executionContextCode' && executionContextCode) {
+                          val = executionContextCode;
+                        } else if (k === 'script' && scriptContent && t.name === 'jmxq_executeScript') {
+                          val = scriptContent;
+                        }
+                        return { ...acc, [k]: val };
+                      }, {});
+                      setArgumentsJson(JSON.stringify(initialArgs, null, 2));
+                    }}
+                  >
+                    <strong>{t.name}</strong>
+                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t.description}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="card glass">
+            <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+              Use the Chat Client to interact with Business Central data using natural language via your n8n workflows.
+            </p>
           </div>
-        </div>
+        )}
       </div>
 
       <div className="main-content">
-        <div className="card" style={{ flex: 'none' }}>
-          <h2>Tool: {selectedTool?.name || 'Please select a tool'}</h2>
-          <textarea
-            rows={8}
-            value={argumentsJson}
-            onChange={(e) => setArgumentsJson(e.target.value)}
-            placeholder='{"arg": "val"}'
-          />
-          <button className="btn" onClick={callTool} disabled={!selectedTool}>
-            Execute Tool Call
-          </button>
-        </div>
-
-        <div className="card" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div className="tabs" style={{ marginBottom: 0 }}>
-              <div className={`tab ${activeTab === 'raw' ? 'active' : ''}`} onClick={() => setActiveTab('raw')}>RAW Result</div>
-              <div className={`tab ${activeTab === 'value' ? 'active' : ''}`} onClick={() => setActiveTab('value')}>VALUE Result</div>
-            </div>
-            {(lastResult || extractedText) && (
-              <button className="btn" style={{ padding: '0.25rem 0.75rem', fontSize: '0.75rem' }} onClick={copyToClipboard}>
-                Copy {activeTab.toUpperCase()}
+        {activeView === 'admin' ? (
+          <>
+            <div className="card" style={{ flex: 'none' }}>
+              <h2>Tool: {selectedTool?.name || 'Please select a tool'}</h2>
+              <textarea
+                rows={8}
+                value={argumentsJson}
+                onChange={(e) => setArgumentsJson(e.target.value)}
+                placeholder='{"arg": "val"}'
+              />
+              <button className="btn" onClick={callTool} disabled={!selectedTool}>
+                Execute Tool Call
               </button>
-            )}
-          </div>
-
-          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {/* System Logs */}
-            <div className="output-area" ref={logRef} style={{ flex: 'none', maxHeight: '120px', fontSize: '0.75rem', opacity: 0.8 }}>
-              {output}
             </div>
 
-            {/* Content Section */}
-            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-              {activeTab === 'raw' && lastResult && (
-                <SyntaxHighlighter
-                  language="json"
-                  style={atomDark}
-                  customStyle={{ margin: 0, borderRadius: '8px', fontSize: '0.875rem', backgroundColor: '#111827', flex: 1, overflow: 'auto' }}
-                >
-                  {lastResult}
-                </SyntaxHighlighter>
-              )}
-
-              {activeTab === 'value' && extractedText && (
-                <SyntaxHighlighter
-                  language="text"
-                  style={atomDark}
-                  customStyle={{ margin: 0, borderRadius: '8px', fontSize: '0.875rem', backgroundColor: '#111827', flex: 1, overflow: 'auto' }}
-                >
-                  {extractedText}
-                </SyntaxHighlighter>
-              )}
-
-              {activeTab === 'value' && !extractedText && (
-                <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
-                  No single value result available. Check the RAW tab.
+            <div className="card" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className="tabs" style={{ marginBottom: 0 }}>
+                  <div className={`tab ${activeTab === 'raw' ? 'active' : ''}`} onClick={() => setActiveTab('raw')}>RAW Result</div>
+                  <div className={`tab ${activeTab === 'value' ? 'active' : ''}`} onClick={() => setActiveTab('value')}>VALUE Result</div>
                 </div>
-              )}
+                {(lastResult || extractedText) && (
+                  <button className="btn" style={{ padding: '0.25rem 0.75rem', fontSize: '0.75rem' }} onClick={copyToClipboard}>
+                    Copy {activeTab.toUpperCase()}
+                  </button>
+                )}
+              </div>
+
+              <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                {/* System Logs */}
+                <div className="output-area" ref={logRef} style={{ flex: 'none', maxHeight: '120px', fontSize: '0.75rem', opacity: 0.8 }}>
+                  {output}
+                </div>
+
+                {/* Content Section */}
+                <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                  {activeTab === 'raw' && lastResult && (
+                    <SyntaxHighlighter
+                      language="json"
+                      style={atomDark}
+                      customStyle={{ margin: 0, borderRadius: '8px', fontSize: '0.875rem', backgroundColor: '#111827', flex: 1, overflow: 'auto' }}
+                    >
+                      {lastResult}
+                    </SyntaxHighlighter>
+                  )}
+
+                  {activeTab === 'value' && extractedText && (
+                    <SyntaxHighlighter
+                      language="text"
+                      style={atomDark}
+                      customStyle={{ margin: 0, borderRadius: '8px', fontSize: '0.875rem', backgroundColor: '#111827', flex: 1, overflow: 'auto' }}
+                    >
+                      {extractedText}
+                    </SyntaxHighlighter>
+                  )}
+
+                  {activeTab === 'value' && !extractedText && (
+                    <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                      No single value result available. Check the RAW tab.
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
+          </>
+        ) : (
+          <ChatClient />
+        )}
       </div>
     </div>
   );

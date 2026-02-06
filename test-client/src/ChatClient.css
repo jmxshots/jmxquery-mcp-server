@@ -1,0 +1,140 @@
+.chat-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    gap: 1rem;
+}
+
+.chat-history {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    padding: 1.5rem;
+    background: var(--bg);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+}
+
+.chat-message {
+    max-width: 85%;
+    padding: 1rem 1.25rem;
+    border-radius: var(--radius);
+    font-size: 0.95rem;
+    line-height: 1.5;
+    position: relative;
+    word-break: break-word;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.chat-message.user {
+    align-self: flex-end;
+    background: var(--primary);
+    color: #000000;
+    font-weight: 500;
+    border-bottom-right-radius: 0;
+}
+
+.chat-message.bot {
+    align-self: flex-start;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-bottom-left-radius: 0;
+}
+
+.chat-message.error {
+    align-self: center;
+    background: #1e1e1e;
+    border: 1px solid var(--error);
+    color: var(--error);
+    font-size: 0.85rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    box-shadow: none;
+}
+
+.retry-btn {
+    background: var(--error);
+    color: #ffffff;
+    padding: 0.5rem 1rem !important;
+    font-size: 0.75rem !important;
+    height: auto !important;
+    border-radius: var(--radius);
+}
+
+.chat-input-area {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-end;
+}
+
+.chat-input-area textarea {
+    flex: 1;
+    resize: none;
+    min-height: 44px;
+    max-height: 120px;
+}
+
+.chat-config-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+.chat-config-btn:hover {
+    color: var(--text);
+}
+
+.html-content {
+    overflow-x: auto;
+}
+
+.html-content table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.5rem 0;
+}
+
+.html-content th,
+.html-content td {
+    border: 1px solid var(--border);
+    padding: 0.5rem;
+    text-align: left;
+}
+
+.html-content pre {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 0.5rem;
+    border-radius: 4px;
+    font-family: 'Fira Code', monospace;
+    font-size: 0.85rem;
+    margin: 0.5rem 0;
+}
+
+/* Scrollbar for chat history */
+.chat-history::-webkit-scrollbar {
+    width: 6px;
+}
+
+.chat-history::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.chat-history::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
+}
+
+.chat-history::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+}
