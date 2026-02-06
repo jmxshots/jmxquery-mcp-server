@@ -137,38 +137,39 @@
 }
 
 .html-content pre {
-    background: #0a0a0a;
-    color: #e0e0e0;
+    background: #1a1a1a;
+    color: #f5f5f5;
     padding: 1rem;
     border-radius: 4px;
     font-family: 'Roboto Mono', 'Fira Code', monospace;
     font-size: 0.8125rem;
     margin: 1rem 0;
-    border: 1px solid #333333;
+    border: 1px solid #444444;
     overflow-x: auto;
     white-space: pre-wrap;
 }
 
 .html-content code {
-    background: #252525;
-    color: #8be9fd;
+    background: #2a2a2a;
+    color: #61dafb;
     padding: 0.125rem 0.375rem;
     border-radius: 4px;
     font-family: inherit;
     font-size: 0.9em;
+    border: 1px solid #3a3a3a;
 }
 
 .html-content,
 .html-content p,
 .html-content span,
 .html-content div {
-    color: #e0e0e0;
+    color: #e8e8e8;
     /* Brighter default for all HTML text */
 }
 
 .html-content em,
 .html-content i {
-    color: #b0b0b0 !important;
+    color: #c0c0c0 !important;
     /* Match sidebar muted text color */
     font-style: italic;
     opacity: 1 !important;
@@ -181,7 +182,7 @@
 .html-content [style*="color:#858585"],
 .html-content font[color="#858585"],
 .html-content font[color="grey"] {
-    color: #b0b0b0 !important;
+    color: #b8b8b8 !important;
 }
 
 .html-content strong,
@@ -193,20 +194,183 @@
 }
 
 .html-content .card {
-    background: #1e1e1e;
-    border: 1px solid #333333;
+    background: #1a1a1a;
+    border: 1px solid #3a3a3a;
     padding: 1rem;
     border-radius: 4px;
     margin: 1rem 0;
 }
 
 .html-content a {
-    color: var(--secondary);
+    color: #61dafb;
     text-decoration: none;
+    font-weight: 500;
 }
 
 .html-content a:hover {
     text-decoration: underline;
+    color: #80e7ff;
+}
+
+/* Ensure input fields and textboxes have dark backgrounds */
+.html-content input[type="text"],
+.html-content input[type="number"],
+.html-content input[type="email"],
+.html-content input[type="password"],
+.html-content input,
+.html-content textarea,
+.html-content select {
+    background-color: #1e1e1e !important;
+    color: #e8e8e8 !important;
+    border: 1px solid #444444 !important;
+    padding: 0.5rem !important;
+    border-radius: 4px !important;
+}
+
+.html-content input::placeholder,
+.html-content textarea::placeholder {
+    color: #888888 !important;
+}
+
+/* AGGRESSIVE DARK THEME OVERRIDES - Maximum Specificity */
+
+/* Override ALL possible light background variations */
+.html-content [style*="background-color: white"],
+.html-content [style*="background-color: #fff"],
+.html-content [style*="background-color:#fff"],
+.html-content [style*="background-color: #FFF"],
+.html-content [style*="background-color:#FFF"],
+.html-content [style*="background-color: #ffffff"],
+.html-content [style*="background-color:#ffffff"],
+.html-content [style*="background-color: #FFFFFF"],
+.html-content [style*="background-color:#FFFFFF"],
+.html-content [style*="background-color:white"],
+.html-content [style*="background: white"],
+.html-content [style*="background: #fff"],
+.html-content [style*="background:#fff"],
+.html-content [style*="background: #FFF"],
+.html-content [style*="background:#FFF"],
+.html-content [style*="background: #ffffff"],
+.html-content [style*="background:#ffffff"],
+.html-content [style*="background: #FFFFFF"],
+.html-content [style*="background:#FFFFFF"],
+.html-content [style*="background:white"],
+.html-content [style*="background-color: rgb(255, 255, 255)"],
+.html-content [style*="background-color:rgb(255,255,255)"],
+.html-content [style*="background: rgb(255, 255, 255)"],
+.html-content [style*="background:rgb(255,255,255)"] {
+    background-color: #1a1a1a !important;
+    background: #1a1a1a !important;
+}
+
+/* Override ALL possible dark/black text variations */
+.html-content [style*="color: black"],
+.html-content [style*="color: #000"],
+.html-content [style*="color:#000"],
+.html-content [style*="color: #000000"],
+.html-content [style*="color:#000000"],
+.html-content [style*="color:black"],
+.html-content [style*="color: rgb(0, 0, 0)"],
+.html-content [style*="color:rgb(0,0,0)"],
+.html-content [style*="color: rgb(0,0,0)"] {
+    color: #e8e8e8 !important;
+}
+
+/* Force dark backgrounds on ALL divs, pre, and container elements */
+.chat-message.bot .html-content div[style],
+.chat-message.bot .html-content pre[style],
+.chat-message.bot .html-content section[style],
+.chat-message.bot .html-content article[style] {
+    background-color: #1a1a1a !important;
+    background: #1a1a1a !important;
+}
+
+/* Force light text on ALL text elements with inline styles */
+.chat-message.bot .html-content div[style*="color"],
+.chat-message.bot .html-content p[style*="color"],
+.chat-message.bot .html-content span[style*="color"],
+.chat-message.bot .html-content pre[style*="color"],
+.chat-message.bot .html-content code[style*="color"] {
+    color: #e8e8e8 !important;
+}
+
+/* Override very light grey backgrounds (common in HTML responses) */
+.html-content [style*="background-color: #f"],
+.html-content [style*="background-color:#f"],
+.html-content [style*="background: #f"],
+.html-content [style*="background:#f"],
+.html-content [style*="background-color: #e"],
+.html-content [style*="background-color:#e"],
+.html-content [style*="background: #e"],
+.html-content [style*="background:#e"] {
+    background-color: #1a1a1a !important;
+    background: #1a1a1a !important;
+}
+
+/* Catch-all: any element in html-content with a style attribute gets dark treatment */
+.chat-message.bot .html-content *[style] {
+    background-color: #1a1a1a !important;
+    color: #e8e8e8 !important;
+}
+
+/* FORCE DARK THEME FOR ALL COMMON CSS CLASSES */
+/* These target class-based styling (not inline styles) */
+.html-content .example,
+.html-content .code-example,
+.html-content .highlight,
+.html-content .note,
+.html-content .warning,
+.html-content .info,
+.html-content .tip,
+.html-content .sample,
+.html-content .snippet,
+.html-content .box,
+.html-content .panel,
+.html-content .section,
+.html-content .block,
+.html-content .content,
+.html-content .body,
+.html-content .container,
+.html-content .wrapper {
+    background-color: #1a1a1a !important;
+    background: #1a1a1a !important;
+    color: #e8e8e8 !important;
+    border-color: #444444 !important;
+}
+
+/* Force dark theme on ALL divs in HTML content */
+.html-content div {
+    background-color: transparent !important;
+    color: #e8e8e8 !important;
+}
+
+/* Exception: only actual code/pre blocks get solid dark backgrounds */
+.html-content pre,
+.html-content code,
+.html-content .example {
+    background-color: #1a1a1a !important;
+}
+
+/* Force dark theme for inline element classes */
+.html-content .kbd,
+.html-content kbd,
+.html-content .badge,
+.html-content .tag,
+.html-content .label,
+.html-content .chip,
+.html-content .pill,
+.html-content .button,
+.html-content .btn {
+    background-color: #2a2a2a !important;
+    color: #61dafb !important;
+    border: 1px solid #444444 !important;
+    padding: 0.125rem 0.5rem !important;
+    border-radius: 4px !important;
+}
+
+/* Ensure span elements inherit proper styling */
+.html-content span {
+    color: inherit;
 }
 
 /* Scrollbar for chat history */
