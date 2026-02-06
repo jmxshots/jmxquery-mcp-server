@@ -97,28 +97,116 @@
 
 .html-content {
     overflow-x: auto;
+    color: var(--text);
+    width: 100%;
+}
+
+.html-content h1,
+.html-content h2,
+.html-content h3 {
+    color: #ffffff;
+    margin-top: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.html-content p {
+    margin-bottom: 0.75rem;
 }
 
 .html-content table {
     width: 100%;
     border-collapse: collapse;
-    margin: 0.5rem 0;
+    margin: 1rem 0;
+    font-size: 0.875rem;
+    background-color: #2c2c2c;
 }
 
-.html-content th,
-.html-content td {
-    border: 1px solid var(--border);
-    padding: 0.5rem;
+.html-content th {
+    background-color: #3d3d3d;
+    color: #ffffff;
+    border: 1px solid #555555;
+    padding: 0.75rem 0.5rem;
+    font-weight: 500;
     text-align: left;
 }
 
-.html-content pre {
-    background: rgba(0, 0, 0, 0.3);
+.html-content td {
+    border: 1px solid #555555;
     padding: 0.5rem;
+    color: #f0f0f0;
+}
+
+.html-content pre {
+    background: #0a0a0a;
+    color: #e0e0e0;
+    padding: 1rem;
     border-radius: 4px;
-    font-family: 'Fira Code', monospace;
-    font-size: 0.85rem;
-    margin: 0.5rem 0;
+    font-family: 'Roboto Mono', 'Fira Code', monospace;
+    font-size: 0.8125rem;
+    margin: 1rem 0;
+    border: 1px solid #333333;
+    overflow-x: auto;
+    white-space: pre-wrap;
+}
+
+.html-content code {
+    background: #252525;
+    color: #8be9fd;
+    padding: 0.125rem 0.375rem;
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 0.9em;
+}
+
+.html-content,
+.html-content p,
+.html-content span,
+.html-content div {
+    color: #e0e0e0;
+    /* Brighter default for all HTML text */
+}
+
+.html-content em,
+.html-content i {
+    color: #b0b0b0 !important;
+    /* Match sidebar muted text color */
+    font-style: italic;
+    opacity: 1 !important;
+}
+
+.html-content .muted,
+.html-content [style*="color: grey"],
+.html-content [style*="color: #858585"],
+.html-content [style*="color: rgb(133, 133, 133)"],
+.html-content [style*="color:#858585"],
+.html-content font[color="#858585"],
+.html-content font[color="grey"] {
+    color: #b0b0b0 !important;
+}
+
+.html-content strong,
+.html-content b,
+.html-content h1,
+.html-content h2,
+.html-content h3 {
+    color: #ffffff !important;
+}
+
+.html-content .card {
+    background: #1e1e1e;
+    border: 1px solid #333333;
+    padding: 1rem;
+    border-radius: 4px;
+    margin: 1rem 0;
+}
+
+.html-content a {
+    color: var(--secondary);
+    text-decoration: none;
+}
+
+.html-content a:hover {
+    text-decoration: underline;
 }
 
 /* Scrollbar for chat history */

@@ -285,6 +285,15 @@ export default function App() {
             <div className="card glass">
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 <div>
+                  <label>MCP Server URL</label>
+                  <input
+                    type="text"
+                    value={mcpServerUrl}
+                    onChange={(e) => setMcpServerUrl(e.target.value)}
+                    placeholder="http://127.0.0.1:4000"
+                  />
+                </div>
+                <div>
                   <label>Service URL</label>
                   <input
                     type="text"
