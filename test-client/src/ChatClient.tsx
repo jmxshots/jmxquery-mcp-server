@@ -11,15 +11,17 @@ interface Message {
 
 interface ChatClientProps {
     targetUrlProp?: string;
+    sessionIdProp?: string;
 }
 
-export default function ChatClient({ targetUrlProp }: ChatClientProps) {
+export default function ChatClient({ targetUrlProp, sessionIdProp }: ChatClientProps) {
     const [messages, setMessages] = useState<Message[]>(() => {
         const saved = localStorage.getItem('chat_history');
         return saved ? JSON.parse(saved) : [];
     });
     const [inputText, setInputText] = useState('');
     const [targetUrl, setTargetUrl] = useState(() => targetUrlProp || localStorage.getItem('chat_target_url') || '');
+    const [sessionId, setSessionId] = useState(() => sessionIdProp || localStorage.getItem('chat_session_id') || '');
     const [lastSentMessage, setLastSentMessage] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
 
@@ -42,6 +44,16 @@ export default function ChatClient({ targetUrlProp }: ChatClientProps) {
         localStorage.setItem('chat_target_url', targetUrl);
     }, [targetUrl]);
 
+    useEffect(() => {
+        if (sessionIdProp !== undefined) {
+            setSessionId(sessionIdProp);
+        }
+    }, [sessionIdProp]);
+
+    useEffect(() => {
+        localStorage.setItem('chat_session_id', sessionId);
+    }, [sessionId]);
+
     const sendMessage = async (textOverride?: string) => {
         const textToSend = textOverride || inputText;
         if (!textToSend.trim() || !targetUrl) return;
@@ -61,11 +73,16 @@ export default function ChatClient({ targetUrlProp }: ChatClientProps) {
         setIsLoading(true);
 
         try {
+            const headers: Record<string, string> = {
+                'Content-Type': 'text/plain',
+            };
+            if (sessionId) {
+                headers['X-Session-ID'] = sessionId;
+            }
+
             const response = await fetch(targetUrl, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'text/plain',
-                },
+                headers,
                 body: userMessage.text,
             });
 

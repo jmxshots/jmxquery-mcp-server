@@ -32,10 +32,11 @@ body {
 .container {
   max-width: 100%;
   margin: 0;
-  padding: 1.5rem;
+  padding: 0;
+  /* Changed to handle padding in children */
   display: grid;
-  grid-template-columns: 350px 1fr;
-  gap: 1.5rem;
+  grid-template-columns: 350px 8px 1fr;
+  gap: 0;
   height: 100vh;
 }
 
@@ -61,7 +62,7 @@ h3 {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-  height: calc(100vh - 4rem);
+  height: 100vh;
   overflow-y: auto;
 }
 
@@ -69,8 +70,25 @@ h3 {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-  height: calc(100vh - 4rem);
+  height: 100vh;
   overflow-y: hidden;
+}
+
+.resizer {
+  width: 8px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.2s;
+  z-index: 10;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+
+.resizer:hover,
+.resizer:active {
+  background: rgba(187, 134, 252, 0.2);
+  border-left: 1px solid var(--primary);
+  border-right: 1px solid var(--primary);
 }
 
 .status-badge {

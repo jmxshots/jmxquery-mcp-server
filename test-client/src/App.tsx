@@ -28,7 +28,12 @@ export default function App() {
   const [endpointUrl, setEndpointUrl] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState('');
   const [activeView, setActiveView] = useState<'admin' | 'chat'>(() => (localStorage.getItem('active_view') as any) || 'admin');
-  const [chatTargetUrl, setChatTargetUrl] = useState(() => localStorage.getItem('chat_target_url') || '');
+  const [chatTargetUrl, setChatTargetUrl] = useState(() => localStorage.getItem('chat_target_url') || ''); // Using this as Test URL
+  const [chatProdUrl, setChatProdUrl] = useState(() => localStorage.getItem('chat_prod_url') || '');
+  const [chatEnv, setChatEnv] = useState<'test' | 'prod'>(() => (localStorage.getItem('chat_env') as any) || 'test');
+  const [chatSessionId, setChatSessionId] = useState(() => localStorage.getItem('chat_session_id') || '');
+  const [sidebarWidth, setSidebarWidth] = useState(() => Number(localStorage.getItem('sidebar_width')) || 350);
+  const [isResizing, setIsResizing] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -39,6 +44,58 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('chat_target_url', chatTargetUrl);
   }, [chatTargetUrl]);
+
+  useEffect(() => {
+    localStorage.setItem('chat_prod_url', chatProdUrl);
+  }, [chatProdUrl]);
+
+  useEffect(() => {
+    localStorage.setItem('chat_env', chatEnv);
+  }, [chatEnv]);
+
+  useEffect(() => {
+    localStorage.setItem('chat_session_id', chatSessionId);
+  }, [chatSessionId]);
+
+  useEffect(() => {
+    localStorage.setItem('sidebar_width', sidebarWidth.toString());
+  }, [sidebarWidth]);
+
+  const startResizing = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  }, []);
+
+  const stopResizing = useCallback(() => {
+    setIsResizing(false);
+  }, []);
+
+  const resize = useCallback((e: MouseEvent) => {
+    if (isResizing) {
+      const newWidth = e.clientX;
+      if (newWidth > 200 && newWidth < 800) {
+        setSidebarWidth(newWidth);
+      }
+    }
+  }, [isResizing]);
+
+  useEffect(() => {
+    if (isResizing) {
+      window.addEventListener('mousemove', resize);
+      window.addEventListener('mouseup', stopResizing);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    } else {
+      window.removeEventListener('mousemove', resize);
+      window.removeEventListener('mouseup', stopResizing);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+    return () => {
+      window.removeEventListener('mousemove', resize);
+      window.removeEventListener('mouseup', stopResizing);
+    };
+  }, [isResizing, resize, stopResizing]);
 
   // Persist context, script, and URL
   useEffect(() => {
@@ -263,8 +320,8 @@ export default function App() {
   };
 
   return (
-    <div className="container">
-      <div className="sidebar">
+    <div className="container" style={{ gridTemplateColumns: `${sidebarWidth}px 8px 1fr`, gap: 0 }}>
+      <div className="sidebar" style={{ padding: '1.5rem' }}>
         <header>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             <h1 style={{ marginBottom: 0 }}>JMX-QUERY</h1>
@@ -380,16 +437,50 @@ export default function App() {
             <div className="card glass">
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 <div>
-                  <label>n8n Webhook URL</label>
+                  <label>n8n Environment</label>
+                  <div className="tabs" style={{ marginBottom: '0.5rem', borderBottom: 'none', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', padding: '2px' }}>
+                    <div className={`tab ${chatEnv === 'test' ? 'active' : ''}`} onClick={() => setChatEnv('test')} style={{ flex: 1, textAlign: 'center', fontSize: '0.75rem', padding: '0.25rem' }}>Test</div>
+                    <div className={`tab ${chatEnv === 'prod' ? 'active' : ''}`} onClick={() => setChatEnv('prod')} style={{ flex: 1, textAlign: 'center', fontSize: '0.75rem', padding: '0.25rem' }}>Production</div>
+                  </div>
+                </div>
+                {chatEnv === 'test' ? (
+                  <div>
+                    <label>n8n Test URL</label>
+                    <input
+                      type="text"
+                      value={chatTargetUrl}
+                      onChange={(e) => setChatTargetUrl(e.target.value)}
+                      placeholder="https://n8n.test.com/..."
+                      style={{ fontSize: '0.85rem' }}
+                    />
+                  </div>
+                ) : (
+                  <div>
+                    <label>n8n Prod URL</label>
+                    <input
+                      type="text"
+                      value={chatProdUrl}
+                      onChange={(e) => setChatProdUrl(e.target.value)}
+                      placeholder="https://n8n.prod.com/..."
+                      style={{ fontSize: '0.85rem' }}
+                    />
+                  </div>
+                )}
+                <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '-0.25rem' }}>
+                  Using: <strong>{chatEnv === 'prod' ? 'Production' : 'Test'}</strong> URL
+                </p>
+                <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '0.25rem 0' }} />
+                <div>
+                  <label>Chat Session ID</label>
                   <input
                     type="text"
-                    value={chatTargetUrl}
-                    onChange={(e) => setChatTargetUrl(e.target.value)}
-                    placeholder="https://n8n.example.com/webhook/..."
+                    value={chatSessionId}
+                    onChange={(e) => setChatSessionId(e.target.value)}
+                    placeholder="e.g. session-123"
                     style={{ fontSize: '0.85rem' }}
                   />
                   <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
-                    This URL is used to send messages to your n8n workflow.
+                    Optional: Sent as X-Session-ID header.
                   </p>
                 </div>
               </div>
@@ -398,7 +489,9 @@ export default function App() {
         )}
       </div>
 
-      <div className="main-content">
+      <div className="resizer" onMouseDown={startResizing} />
+
+      <div className="main-content" style={{ padding: '1.5rem' }}>
         {activeView === 'admin' ? (
           <>
             <div className="card" style={{ flex: 'none' }}>
@@ -465,7 +558,10 @@ export default function App() {
             </div>
           </>
         ) : (
-          <ChatClient targetUrlProp={chatTargetUrl} />
+          <ChatClient
+            targetUrlProp={chatEnv === 'prod' ? chatProdUrl : chatTargetUrl}
+            sessionIdProp={chatSessionId}
+          />
         )}
       </div>
     </div>
