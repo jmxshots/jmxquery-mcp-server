@@ -27,13 +27,20 @@ body {
   font-family: var(--font-main);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  width: 100%;
+  min-height: 100vh;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
 }
 
 .container {
+  width: 100%;
   max-width: 100%;
   margin: 0;
   padding: 0;
-  /* Changed to handle padding in children */
   display: grid;
   grid-template-columns: 350px 8px 1fr;
   gap: 0;
@@ -45,9 +52,10 @@ h2,
 h3 {
   font-weight: 700;
   letter-spacing: -0.025em;
+  color: var(--text);
 }
 
-.card {
+.app-card {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -56,6 +64,12 @@ h3 {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.app-card.glass {
+  background-color: var(--bg-card);
+  backdrop-filter: none;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
 }
 
 .sidebar {
@@ -129,7 +143,7 @@ h3 {
   border-color: var(--primary);
 }
 
-.card {
+.app-card {
   background-color: var(--bg-card);
   border: 1px solid var(--border);
   padding: 1.5rem;
@@ -140,7 +154,7 @@ h3 {
   gap: 1rem;
 }
 
-.card.glass {
+.app-card.glass {
   background-color: var(--bg-card);
   backdrop-filter: none;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);

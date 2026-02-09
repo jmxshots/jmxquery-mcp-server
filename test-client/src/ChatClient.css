@@ -3,6 +3,13 @@
     flex-direction: column;
     height: 100%;
     gap: 1rem;
+    color: var(--text);
+    /* Reinforce text color */
+}
+
+.chat-container h2 {
+    color: var(--text);
+    margin: 0;
 }
 
 .chat-history {
@@ -18,7 +25,7 @@
 }
 
 .chat-message {
-    max-width: 85%;
+    max-width: 95%;
     padding: 1rem 1.25rem;
     border-radius: var(--radius);
     font-size: 0.95rem;
@@ -199,6 +206,8 @@
     padding: 1rem;
     border-radius: 4px;
     margin: 1rem 0;
+    max-width: 100% !important;
+    /* Force content to be wide */
 }
 
 .html-content a {

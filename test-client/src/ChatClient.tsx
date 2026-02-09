@@ -148,7 +148,7 @@ export default function ChatClient({ targetUrlProp, sessionIdProp }: ChatClientP
     };
 
     return (
-        <div className="chat-container card glass">
+        <div className="chat-container app-card glass">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h2>Chat Client</h2>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>

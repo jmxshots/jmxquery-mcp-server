@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import ChatClient from './ChatClient';
+import './App.css';
 
 interface Tool {
   name: string;
@@ -495,10 +496,10 @@ export default function App() {
 
       <div className="resizer" onMouseDown={startResizing} />
 
-      <div className="main-content" style={{ padding: '1.5rem' }}>
+      <div className="main-content" style={{ padding: '1.5rem', width: '100%', maxWidth: 'none' }}>
         {activeView === 'admin' ? (
           <>
-            <div className="card" style={{ flex: 'none' }}>
+            <div className="app-card" style={{ flex: 'none' }}>
               <h2>Tool: {selectedTool?.name || 'Please select a tool'}</h2>
               <textarea
                 rows={8}
@@ -511,7 +512,7 @@ export default function App() {
               </button>
             </div>
 
-            <div className="card" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <div className="app-card" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div className="tabs" style={{ marginBottom: 0 }}>
                   <div className={`tab ${activeTab === 'raw' ? 'active' : ''}`} onClick={() => setActiveTab('raw')}>RAW Result</div>
