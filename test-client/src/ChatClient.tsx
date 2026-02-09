@@ -9,14 +9,17 @@ interface Message {
     isHtml?: boolean;
 }
 
-export default function ChatClient() {
+interface ChatClientProps {
+    targetUrlProp?: string;
+}
+
+export default function ChatClient({ targetUrlProp }: ChatClientProps) {
     const [messages, setMessages] = useState<Message[]>(() => {
         const saved = localStorage.getItem('chat_history');
         return saved ? JSON.parse(saved) : [];
     });
     const [inputText, setInputText] = useState('');
-    const [targetUrl, setTargetUrl] = useState(() => localStorage.getItem('chat_target_url') || '');
-    const [showConfig, setShowConfig] = useState(!localStorage.getItem('chat_target_url'));
+    const [targetUrl, setTargetUrl] = useState(() => targetUrlProp || localStorage.getItem('chat_target_url') || '');
     const [lastSentMessage, setLastSentMessage] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
 
@@ -28,6 +31,12 @@ export default function ChatClient() {
             historyRef.current.scrollTop = historyRef.current.scrollHeight;
         }
     }, [messages]);
+
+    useEffect(() => {
+        if (targetUrlProp !== undefined) {
+            setTargetUrl(targetUrlProp);
+        }
+    }, [targetUrlProp]);
 
     useEffect(() => {
         localStorage.setItem('chat_target_url', targetUrl);
@@ -108,30 +117,12 @@ export default function ChatClient() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h2>Chat Client</h2>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <button className="btn" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', background: 'var(--border)' }} onClick={() => setShowConfig(!showConfig)}>
-                        {showConfig ? 'Hide Config' : 'Configure'}
-                    </button>
                     <button className="btn" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', background: 'var(--error)' }} onClick={clearHistory}>
                         Clear
                     </button>
                 </div>
             </div>
 
-            {showConfig && (
-                <div className="card" style={{ background: 'rgba(0,0,0,0.2)', padding: '1rem' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        <div>
-                            <label>Target URL (Webhook)</label>
-                            <input
-                                type="text"
-                                value={targetUrl}
-                                onChange={(e) => setTargetUrl(e.target.value)}
-                                placeholder="https://n8n.example.com/webhook/..."
-                            />
-                        </div>
-                    </div>
-                </div>
-            )}
 
             <div className="chat-history" ref={historyRef}>
                 {messages.length === 0 && (

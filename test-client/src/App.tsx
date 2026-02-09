@@ -28,12 +28,17 @@ export default function App() {
   const [endpointUrl, setEndpointUrl] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState('');
   const [activeView, setActiveView] = useState<'admin' | 'chat'>(() => (localStorage.getItem('active_view') as any) || 'admin');
+  const [chatTargetUrl, setChatTargetUrl] = useState(() => localStorage.getItem('chat_target_url') || '');
   const eventSourceRef = useRef<EventSource | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     localStorage.setItem('active_view', activeView);
   }, [activeView]);
+
+  useEffect(() => {
+    localStorage.setItem('chat_target_url', chatTargetUrl);
+  }, [chatTargetUrl]);
 
   // Persist context, script, and URL
   useEffect(() => {
@@ -264,25 +269,25 @@ export default function App() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             <h1 style={{ marginBottom: 0 }}>JMX-QUERY</h1>
             <div className="tabs" style={{ marginBottom: 0, borderBottom: 'none' }}>
-              <div className={`tab ${activeView === 'admin' ? 'active' : ''}`} onClick={() => setActiveView('admin')}>Admin</div>
+              <div className={`tab ${activeView === 'admin' ? 'active' : ''}`} onClick={() => setActiveView('admin')}>MCP-Client</div>
               <div className={`tab ${activeView === 'chat' ? 'active' : ''}`} onClick={() => setActiveView('chat')}>Chat</div>
             </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginTop: '1rem' }}>
-            <div className={`status-badge ${status}`}>
-              {status === 'connected' ? 'Connected' : status === 'connecting' ? 'Connecting...' : 'Offline'}
-            </div>
-            {status === 'connected' ? (
-              <button className="btn" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', background: 'var(--error)' }} onClick={disconnect}>Disconnect</button>
-            ) : (
-              <button className="btn" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={connect} disabled={status === 'connecting'}>Connect</button>
-            )}
           </div>
         </header>
 
         {activeView === 'admin' ? (
           <>
             <div className="card glass">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
+                <div className={`status-badge ${status}`}>
+                  {status === 'connected' ? 'Connected' : status === 'connecting' ? 'Connecting...' : 'Offline'}
+                </div>
+                {status === 'connected' ? (
+                  <button className="btn" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', background: 'var(--error)' }} onClick={disconnect}>Disconnect</button>
+                ) : (
+                  <button className="btn" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={connect} disabled={status === 'connecting'}>Connect</button>
+                )}
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 <div>
                   <label>MCP Server URL</label>
@@ -366,10 +371,29 @@ export default function App() {
             </div>
           </>
         ) : (
-          <div className="card glass">
-            <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-              Use the Chat Client to interact with Business Central data using natural language via your n8n workflows.
-            </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div className="card glass">
+              <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+                Use the Chat Client to interact with Business Central data using natural language via your n8n workflows.
+              </p>
+            </div>
+            <div className="card glass">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <div>
+                  <label>n8n Webhook URL</label>
+                  <input
+                    type="text"
+                    value={chatTargetUrl}
+                    onChange={(e) => setChatTargetUrl(e.target.value)}
+                    placeholder="https://n8n.example.com/webhook/..."
+                    style={{ fontSize: '0.85rem' }}
+                  />
+                  <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
+                    This URL is used to send messages to your n8n workflow.
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -441,7 +465,7 @@ export default function App() {
             </div>
           </>
         ) : (
-          <ChatClient />
+          <ChatClient targetUrlProp={chatTargetUrl} />
         )}
       </div>
     </div>
