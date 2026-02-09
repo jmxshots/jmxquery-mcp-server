@@ -93,12 +93,30 @@ export default function ChatClient({ targetUrlProp, sessionIdProp }: ChatClientP
             const contentType = response.headers.get('content-type');
             const resultText = await response.text();
 
+            let displayText = resultText;
+            let identifiedAsHtml = contentType?.includes('text/html') || resultText.trim().startsWith('<');
+
+            // Robust JSON parsing: if it's a JSON object, try to find the content
+            try {
+                if (resultText.trim().startsWith('{')) {
+                    const json = JSON.parse(resultText);
+                    // Check common n8n/webhook response fields
+                    const extracted = json.output || json.text || json.message || (typeof json === 'string' ? json : null);
+                    if (extracted) {
+                        displayText = extracted;
+                        identifiedAsHtml = identifiedAsHtml || displayText.trim().startsWith('<');
+                    }
+                }
+            } catch (e) {
+                // Not valid JSON, stick with raw text
+            }
+
             const botMessage: Message = {
                 id: (Date.now() + 1).toString(),
-                text: resultText,
+                text: displayText,
                 sender: 'bot',
                 timestamp: Date.now(),
-                isHtml: contentType?.includes('text/html') || resultText.trim().startsWith('<'),
+                isHtml: identifiedAsHtml,
             };
 
             setMessages(prev => [...prev, botMessage]);

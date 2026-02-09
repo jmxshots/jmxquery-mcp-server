@@ -26,7 +26,7 @@ export default function App() {
   const [extractedText, setExtractedText] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'raw' | 'value'>('value');
   const [endpointUrl, setEndpointUrl] = useState<string | null>(null);
-  const [apiKey, setApiKey] = useState('');
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem('mcp_api_key') || '');
   const [activeView, setActiveView] = useState<'admin' | 'chat'>(() => (localStorage.getItem('active_view') as any) || 'admin');
   const [chatTargetUrl, setChatTargetUrl] = useState(() => localStorage.getItem('chat_target_url') || ''); // Using this as Test URL
   const [chatProdUrl, setChatProdUrl] = useState(() => localStorage.getItem('chat_prod_url') || '');
@@ -109,6 +109,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('mcp_server_url', mcpServerUrl);
   }, [mcpServerUrl]);
+
+  useEffect(() => {
+    localStorage.setItem('mcp_api_key', apiKey);
+  }, [apiKey]);
 
   // Auto-scroll logs to bottom
   useEffect(() => {
