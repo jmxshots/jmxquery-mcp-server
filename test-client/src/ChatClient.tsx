@@ -19,10 +19,10 @@ export default function ChatClient({ targetUrlProp, sessionIdProp }: ChatClientP
         const saved = localStorage.getItem('chat_history');
         return saved ? JSON.parse(saved) : [];
     });
-    const [inputText, setInputText] = useState('');
+    const [inputText, setInputText] = useState(() => localStorage.getItem('chat_input_text') || '');
     const [targetUrl, setTargetUrl] = useState(() => targetUrlProp || localStorage.getItem('chat_target_url') || '');
     const [sessionId, setSessionId] = useState(() => sessionIdProp || localStorage.getItem('chat_session_id') || '');
-    const [lastSentMessage, setLastSentMessage] = useState<string | null>(null);
+    const [lastSentMessage, setLastSentMessage] = useState<string | null>(() => localStorage.getItem('chat_last_sent'));
     const [isLoading, setIsLoading] = useState(false);
 
     const historyRef = useRef<HTMLDivElement>(null);
@@ -33,6 +33,18 @@ export default function ChatClient({ targetUrlProp, sessionIdProp }: ChatClientP
             historyRef.current.scrollTop = historyRef.current.scrollHeight;
         }
     }, [messages]);
+
+    useEffect(() => {
+        localStorage.setItem('chat_input_text', inputText);
+    }, [inputText]);
+
+    useEffect(() => {
+        if (lastSentMessage) {
+            localStorage.setItem('chat_last_sent', lastSentMessage);
+        } else {
+            localStorage.removeItem('chat_last_sent');
+        }
+    }, [lastSentMessage]);
 
     useEffect(() => {
         if (targetUrlProp !== undefined) {
