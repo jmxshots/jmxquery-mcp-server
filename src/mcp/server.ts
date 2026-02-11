@@ -11,6 +11,55 @@ const logger = pino({
     level: config.LOG_LEVEL,
 });
 
+/**
+ * Strips single-line comments (-- or //) from a JMXQuery script.
+ * Correcty handles comments outside of single or double quoted strings.
+ */
+function stripJmxqComments(script: string): string {
+    if (!script) return script;
+
+    const lines = script.split(/\r?\n/);
+    const cleanedLines = lines.map(line => {
+        let inSingleQuote = false;
+        let inDoubleQuote = false;
+        let escaped = false;
+
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+
+            if (char === '\\') {
+                escaped = true;
+                continue;
+            }
+
+            if (char === "'" && !inDoubleQuote) {
+                inSingleQuote = !inSingleQuote;
+                continue;
+            }
+
+            if (char === '"' && !inSingleQuote) {
+                inDoubleQuote = !inDoubleQuote;
+                continue;
+            }
+
+            if (!inSingleQuote && !inDoubleQuote) {
+                // Check for -- or //
+                if ((char === '-' && line[i + 1] === '-') || (char === '/' && line[i + 1] === '/')) {
+                    return line.substring(0, i).trimEnd();
+                }
+            }
+        }
+        return line;
+    });
+
+    return cleanedLines.filter(line => line.trim().length > 0).join('\n');
+}
+
 export function createMcpServer() {
     const mcpServer = new Server(
         {
@@ -119,7 +168,7 @@ export function createMcpServer() {
                 case 'jmxq_executeScript':
                     result = await bcClient.callAction('JMXQ_ApiService', 'ExecuteScript', {
                         executionContextCode: ctx,
-                        script: args?.script
+                        script: stripJmxqComments(args?.script as string)
                     });
                     break;
                 default:
