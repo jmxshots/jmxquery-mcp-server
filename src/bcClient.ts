@@ -108,8 +108,8 @@ export class BcClient {
                 "Accept" = "application/json"; 
                 "X-Request-ID" = "${requestId}" 
             };
-            $body = '${jsonPayload.replace(/'/g, "''")}';
-            $response = Invoke-RestMethod -Uri "${url}" -Method Post -Body $body -ContentType "application/json" -UseDefaultCredentials -Headers $headers;
+            $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes('${jsonPayload.replace(/'/g, "''")}');
+            $response = Invoke-RestMethod -Uri "${url}" -Method Post -Body $bodyBytes -ContentType "application/json; charset=utf-8" -UseDefaultCredentials -Headers $headers;
             if ($null -eq $response) { return "" }
             $response | ConvertTo-Json -Depth 10 -Compress;
         `.trim();
