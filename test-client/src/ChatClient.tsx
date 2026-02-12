@@ -99,7 +99,19 @@ export default function ChatClient({ targetUrlProp, sessionIdProp }: ChatClientP
             });
 
             if (!response.ok) {
-                throw new Error(`HTTP Error: ${response.status}`);
+                let errorDetails = '';
+                try {
+                    const errorText = await response.text();
+                    try {
+                        const errorJson = JSON.parse(errorText);
+                        errorDetails = errorJson.message || errorJson.error || errorText;
+                    } catch (e) {
+                        errorDetails = errorText;
+                    }
+                } catch (e) {
+                    // Could not read body
+                }
+                throw new Error(`HTTP Error: ${response.status}${errorDetails ? ` - ${errorDetails}` : ''}`);
             }
 
             const contentType = response.headers.get('content-type');
