@@ -145,11 +145,16 @@ export default function ChatClient({ targetUrlProp, sessionIdProp }: ChatClientP
 
             setMessages(prev => [...prev, botMessage]);
         } catch (error: any) {
+            const errorText = error.message;
+            // Simple heuristic to detect HTML in the error message
+            const isHtml = errorText.includes('<') && errorText.includes('>');
+
             const errorMessage: Message = {
                 id: (Date.now() + 1).toString(),
-                text: `Error: ${error.message}`,
+                text: `Error: ${errorText}`,
                 sender: 'bot',
                 timestamp: Date.now(),
+                isHtml: isHtml,
             };
             setMessages(prev => [...prev, errorMessage]);
         } finally {
