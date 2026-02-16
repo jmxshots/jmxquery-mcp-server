@@ -4,16 +4,15 @@ This is a Model Context Protocol (MCP) server that exposes JMX-QUERY functions f
 
 ## Features
 
-- **SSE Transport**: Supports HTTP + Server-Sent Events for broad client compatibility.
-- **Multi-Client**: Supports multiple concurrent AI clients via `clientId` mapping.
-- **BC Integration**: Optimized for Business Central OData V4 Actions with "double-parsing" support.
+- **Three Transport Modes**: Supports **Stdio**, **SSE**, and the new high-performance **Streamable HTTP** transport.
+- **Parallel Support**: Run different transports simultaneously (e.g., Stdio for the local CLI and SSE for a web dashboard).
+- **Multi-Client**: Supports multiple concurrent AI clients via session management.
+- **BC Integration**: Optimized for Business Central OData V4 Actions with "double-parsing" support for complex results.
 - **JMX-QUERY Tools**:
-  - `jmxq_getGrammar`
-  - `jmxq_getExamples`
-  - `jmxq_getReadmeApi`
-  - `jmxq_describeExecutionContext`
-  - `jmxq_describeTableFields`
-  - `jmxq_executeScript`
+  - `jmxq_ping`
+  - `jmxq_getGrammar`, `jmxq_getExamples`, `jmxq_getReadmeApi`
+  - `jmxq_describeExecutionContext`, `jmxq_describeTableFields`
+  - `jmxq_executeScript` (Executes scripts and returns formatted results)
 
 ## Configuration (.env)
 
@@ -28,9 +27,10 @@ The server is configured via environment variables in a `.env` file.
 | `BC_PASSWORD` | Password for BC authentication (not needed for SSO). | `your_password` |
 | `JMXQ_EXECUTION_CONTEXT_CODE` | Default context code for JMX-QUERY. | `DEFAULT` |
 | `MCP_HOST` | Host the MCP server should bind to. | `127.0.0.1` |
-| `MCP_PORT` | Port the MCP server should listen on. | `4000` |
+| `MCP_PORT` | Port for the main server (includes SSE). | `5000` |
+| `MCP_STREAMABLE_PORT` | **Optional**: Dedicated port for Streamable HTTP. | `5001` |
 | `LOG_LEVEL` | Logging verbosity (`debug`, `info`, `warn`, `error`). | `info` |
-| `MCP_API_KEY` | Optional: API key for securing SSE/Web access. | `your-secret-key` |
+| `MCP_API_KEY` | **Optional**: API key for securing SSE/HTTP access. | `your-secret-key` |
 
 ## Windows Service Integration
 
@@ -79,19 +79,25 @@ A web-based test client is available in the `test-client` directory to verify th
    ```
 4. **Open in Browser**: Navigate to `http://localhost:5173`.
 
+## Supported Transports
+
+The server supports three distinct ways for AI clients to connect:
+
+1.  **Stdio**: Best for local command-line tools and IDE extensions (Cline, Roo Code).
+2.  **SSE (Server-Sent Events)**: Classical web-compatible streaming. Best for browser-based clients.
+3.  **Streamable HTTP**: The modern, high-performance binary-friendly transport from the MCP SDK. Best for VS Code native MCP support.
+
 ## API Endpoints
 
-- **SSE (Initial Connect)**: `GET /mcp/sse?apiKey=<your-key>`
-- **Messages (JSON-RPC)**: `POST /mcp/messages?sessionId=<session-id>`
-  - Requires `Authorization: Bearer <your-key>` header if `MCP_API_KEY` is set.
+- **Streamable HTTP**: `ANY /mcp/stream` (Uses `MCP_STREAMABLE_PORT`)
+- **SSE Connection**: `GET /mcp/sse` (Uses `MCP_PORT`)
+- **SSE Messages**: `POST /mcp/messages?sessionId=<id>`
 
 ## Client Integration Examples
 
-To use this server with an MCP client (e.g., Cursor, Claude Dev, or VS Code), use the following configuration examples.
+### 1. Stdio (Cline / Roo Code / Claude Desktop)
 
-### Claude Desktop / Cline / Roo Code (Stdio)
-
-If you want to use the server via Stdio (standard input/output), use this configuration in your `mcp_config.json`:
+Used when the agent starts the server as a local child process. Add this to your `mcp_config.json`:
 
 ```json
 {
@@ -100,27 +106,44 @@ If you want to use the server via Stdio (standard input/output), use this config
       "command": "node",
       "args": ["c:/Entwicklung/Antigravity/JS-JMXQuery-MCPServer/build/index.js"],
       "env": {
-        "BC_ODATA_BASE_URL": "http://bc-server:7048/BC220/ODataV4/",
+        "BC_ODATA_BASE_URL": "http://bc-server:22048/BC22/ODataV4/",
+        "BC_COMPANY": "CRONUS",
         "BC_AUTH_TYPE": "NTLM",
         "BC_USERNAME": "domain\\user",
-        "BC_PASSWORD": "your_password"
+        "BC_PASSWORD": "password"
       }
     }
   }
 }
 ```
 
-### SSE (for Web-based Clients or Tools)
+### 2. Streamable HTTP (VS Code Native / Modern Clients)
 
-If you are using the server as a Windows Service or standalone process via SSE:
-
-**URL**: `http://localhost:4000/mcp/sse?clientId=my-ai-agent`
+Best performance. Requires the server to be running (e.g., as a Windows Service).
 
 ```json
 {
-  "name": "JMXQuery MCP-Server",
-  "transport": "sse",
-  "url": "http://localhost:4000/mcp/sse?clientId=cursor-client"
+  "mcpServers": {
+    "JMXQuery": {
+      "url": "http://127.0.0.1:5001/mcp/stream",
+      "type": "http"
+    }
+  }
+}
+```
+
+### 3. SSE (Legacy / Web Clients)
+
+Reliable streaming over standard HTTP.
+
+```json
+{
+  "mcpServers": {
+    "JMXQuery-SSE": {
+      "url": "http://127.0.0.1:5000/mcp/sse",
+      "type": "sse"
+    }
+  }
 }
 ```
 
