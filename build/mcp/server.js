@@ -81,6 +81,11 @@ export function createMcpServer() {
                     inputSchema: { type: 'object', properties: {} },
                 },
                 {
+                    name: 'jmxq_listExecutionContexts',
+                    description: 'Lists all available execution contexts.',
+                    inputSchema: { type: 'object', properties: {} },
+                },
+                {
                     name: 'jmxq_describeExecutionContext',
                     description: 'Describes the execution context (tables, permissions).',
                     inputSchema: {
@@ -135,6 +140,9 @@ export function createMcpServer() {
                     break;
                 case 'jmxq_getReadmeApi':
                     result = await bcClient.callAction('JMXQ_ApiInfoService', 'GetReadmeApi', {});
+                    break;
+                case 'jmxq_listExecutionContexts':
+                    result = await bcClient.callAction('JMXQ_ApiInfoService', 'ListExecutionContexts', {});
                     break;
                 case 'jmxq_describeExecutionContext':
                     result = await bcClient.callAction('JMXQ_ApiInfoService', 'DescribeExecutionContext', { executionContextCode: ctx });

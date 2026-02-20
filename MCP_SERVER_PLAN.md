@@ -89,6 +89,7 @@ Tools are defined inline here for simplicity (there is no separate `src/tools/` 
 - `jmxq_getGrammar`: Fetches the JMX-QUERY EBNF grammar.
 - `jmxq_getExamples`: Shows script examples.
 - `jmxq_getReadmeApi`: Fetches developer-oriented documentation.
+- `jmxq_listExecutionContexts`: Lists available execution contexts.
 - `jmxq_describeExecutionContext`: Details about context (tables, permissions).
 - `jmxq_describeTableFields`: Fetches fields and types of a specific table.
 - `jmxq_executeScript`: Executes a JMX-QUERY script.

@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createMcpServer } from './mcp/server.js';
 import { config } from './config.js';
 import { pino } from 'pino';
@@ -24,8 +25,16 @@ const fastify = Fastify({
 });
 await fastify.register(cors, {
     origin: true,
-    methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'X-MCP-ClientId', 'Authorization'],
+    methods: ['GET', 'POST', 'OPTIONS', 'DELETE'],
+    allowedHeaders: [
+        'Content-Type',
+        'X-MCP-ClientId',
+        'Authorization',
+        'mcp-session-id',
+        'mcp-protocol-version',
+        'x-mcp-protocol-version'
+    ],
+    exposedHeaders: ['mcp-session-id', 'mcp-protocol-version'],
 });
 // Configure the underlying Node server timeouts
 fastify.addHook('onReady', () => {
@@ -33,8 +42,9 @@ fastify.addHook('onReady', () => {
     fastify.server.headersTimeout = 0;
     fastify.server.requestTimeout = 0;
 });
-// Create the core MCP server instance
-const mcpServer = createMcpServer();
+// NOTE: Each transport needs its OWN MCP server instance.
+// Protocol.connect() replaces the internal _transport reference,
+// so sharing one instance across transports would break all but the last one.
 // --- Authentication Middleware ---
 const isValidApiKey = (request) => {
     const configKey = config.MCP_API_KEY?.trim();
@@ -98,7 +108,9 @@ fastify.get('/mcp/sse', async (request, reply) => {
             logger.info({ sessionId }, 'SSE Connection Closed');
             activeTransports.delete(sessionId);
         });
-        await mcpServer.connect(transport);
+        // Each SSE session gets its own MCP server instance
+        const sessionMcpServer = createMcpServer();
+        await sessionMcpServer.connect(transport);
         logger.info({ sessionId }, 'MCP Server SSE session connected');
     }
     catch (error) {
@@ -146,14 +158,82 @@ fastify.post('/mcp/messages', async (request, reply) => {
         }
     }
 });
+// --- Streamable HTTP Transport (New Protocol) ---
+const streamableTransport = new StreamableHTTPServerTransport();
+streamableTransport.onmessage = (message) => {
+    const method = message.method || 'notification/response';
+    logger.info({ method }, 'Streamable HTTP transport received message');
+};
+streamableTransport.onerror = (error) => {
+    logger.error({ error }, 'Streamable HTTP transport error');
+};
+// Determine which Fastify instance hosts the Streamable HTTP routes
+const streamablePort = config.MCP_STREAMABLE_PORT;
+const streamableFastify = streamablePort ? Fastify({ logger: false, connectionTimeout: 0 }) : fastify;
+if (streamablePort) {
+    // Separate server needs its own CORS and timeout config
+    await streamableFastify.register(cors, {
+        origin: true,
+        methods: ['GET', 'POST', 'OPTIONS', 'DELETE'],
+        allowedHeaders: [
+            'Content-Type',
+            'X-MCP-ClientId',
+            'Authorization',
+            'mcp-session-id',
+            'mcp-protocol-version',
+            'x-mcp-protocol-version'
+        ],
+        exposedHeaders: ['mcp-session-id', 'mcp-protocol-version'],
+    });
+    streamableFastify.addHook('onReady', () => {
+        streamableFastify.server.keepAliveTimeout = 0;
+        streamableFastify.server.headersTimeout = 0;
+        streamableFastify.server.requestTimeout = 0;
+    });
+}
+// Handle all methods for the streaming endpoint
+streamableFastify.all('/mcp/stream', async (request, reply) => {
+    logger.info({ method: request.method, url: request.url }, 'Streamable HTTP request received');
+    if (!isValidApiKey(request)) {
+        logger.warn('Unauthorized Streamable HTTP attempt');
+        reply.code(401).send({ error: 'Unauthorized', message: 'Invalid or missing API Key' });
+        return;
+    }
+    try {
+        // We MUST hijack the reply for the transport to work correctly with streaming
+        reply.hijack();
+        // Pass the body if it was already parsed by Fastify (for POST requests)
+        // For GET requests, request.body will be undefined which is correct.
+        await streamableTransport.handleRequest(request.raw, reply.raw, request.body);
+    }
+    catch (error) {
+        logger.error({ error }, 'Error in Streamable HTTP handler');
+        if (reply.raw && !reply.raw.writableEnded) {
+            if (!reply.raw.headersSent) {
+                reply.raw.writeHead(500, { 'Content-Type': 'application/json' });
+            }
+            reply.raw.end(JSON.stringify({ error: `STREAMABLE_ERROR: ${error.message}` }));
+        }
+    }
+});
+// Also support sub-paths (if needed)
+streamableFastify.all('/mcp/stream/*', async (request, reply) => {
+    if (!isValidApiKey(request)) {
+        reply.code(401).send({ error: 'Unauthorized', message: 'Invalid or missing API Key' });
+        return;
+    }
+    reply.hijack();
+    await streamableTransport.handleRequest(request.raw, reply.raw, request.body);
+});
 // --- Stdio Transport (for AI Agents like Claude Desktop/Cline) ---
 const startStdio = async () => {
     // Check if we are in a TTY. If not, we probably want Stdio support.
     // However, it's safer to always try to connect it if it's not a terminal
     // or if the user explicitly wants it. For MCP servers, adding it doesn't hurt.
     try {
+        const stdioMcpServer = createMcpServer();
         const stdioTransport = new StdioServerTransport();
-        await mcpServer.connect(stdioTransport);
+        await stdioMcpServer.connect(stdioTransport);
         logger.info('MCP Server Stdio transport connected');
     }
     catch (err) {
@@ -164,10 +244,22 @@ const start = async () => {
     try {
         // Start Stdio transport in parallel
         startStdio();
-        // Start HTTP server for SSE
+        // Connect Streamable transport with its own MCP server instance
+        const streamableMcpServer = createMcpServer();
+        await streamableMcpServer.connect(streamableTransport);
+        logger.info('MCP Server Streamable transport connected');
+        // Start HTTP server for SSE (and Streamable HTTP if no separate port)
         await fastify.listen({ port: config.MCP_PORT, host: config.MCP_HOST });
         logger.info(`JMX-QUERY MCP Server running at http://${config.MCP_HOST}:${config.MCP_PORT}`);
         logger.info(`SSE Endpoint: http://${config.MCP_HOST}:${config.MCP_PORT}/mcp/sse`);
+        // Start separate Streamable HTTP server if configured
+        if (streamablePort) {
+            await streamableFastify.listen({ port: streamablePort, host: config.MCP_HOST });
+            logger.info(`Streamable HTTP Endpoint: http://${config.MCP_HOST}:${streamablePort}/mcp/stream`);
+        }
+        else {
+            logger.info(`Streamable HTTP Endpoint: http://${config.MCP_HOST}:${config.MCP_PORT}/mcp/stream`);
+        }
         const isAuthActive = !!config.MCP_API_KEY;
         if (isAuthActive) {
             logger.info('*** SECURITY: API Key Authentication is ENABLED ***');
@@ -201,7 +293,11 @@ const shutdown = async (signal) => {
             }
         }
         activeTransports.clear();
-        // Close the Fastify server
+        // Close Fastify servers
+        if (streamablePort) {
+            await streamableFastify.close();
+            logger.info('Streamable HTTP server closed successfully');
+        }
         await fastify.close();
         logger.info('Fastify server closed successfully');
         process.exit(0);
