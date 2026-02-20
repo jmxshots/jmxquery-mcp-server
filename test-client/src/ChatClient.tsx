@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './ChatClient.css';
+import HtmlBox from './HtmlBox';
 
 interface Message {
     id: string;
@@ -195,9 +196,9 @@ export default function ChatClient({ targetUrlProp, sessionIdProp }: ChatClientP
                     </div>
                 )}
                 {messages.map((msg) => (
-                    <div key={msg.id} className={`chat-message ${msg.sender} ${msg.text.startsWith('Error:') ? 'error' : ''}`}>
+                    <div key={msg.id} className={`chat-message ${msg.sender} ${msg.text.startsWith('Error:') ? 'error' : ''} ${msg.isHtml ? 'html' : ''}`}>
                         {msg.isHtml ? (
-                            <div className="html-content" dangerouslySetInnerHTML={{ __html: msg.text }} />
+                            <HtmlBox className="html-content" html={msg.text} />
                         ) : (
                             <div style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</div>
                         )}
