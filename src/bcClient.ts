@@ -126,7 +126,13 @@ export class BcClient {
             return output.trim();
         } catch (err: any) {
             logger.error({ err, script: psScript }, 'PowerShell Execution Failed');
-            throw new Error(`PowerShell SSO Error: ${err.message}`);
+
+            let message = err.message;
+            if (message.includes('Authentication_InvalidCredentials') || message.includes('401')) {
+                message += '\n\nHINT: If the server is running as a Windows Service, ensure the service is configured to "Log On" as a domain user with Business Central access. The default LocalSystem account cannot use SSO.';
+            }
+
+            throw new Error(`PowerShell SSO Error: ${message}`);
         }
     }
 }

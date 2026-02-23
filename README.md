@@ -45,8 +45,12 @@ The server can be registered as a Windows service to run in the background and s
 
 ### Windows Service User (Service Account)
 
-For **On-Premise Business Central** with NTLM authentication, the service must often run under a specific user account that has permission to access the BC server.
+For **On-Premise Business Central** with NTLM or SSO authentication, the service must run under a specific user account that has permission to access the BC server.
 
+> [!WARNING]
+> **SSO/Integrated Windows Authentication** will **FAIL** if the service runs under the default `LocalSystem` account. `LocalSystem` does not have an identity that can be used for network authentication against Business Central.
+
+To configure the service account:
 1.  Open **Services Manager** (`services.msc`).
 2.  Locate **"JMX-QUERY MCP Server"**.
 3.  Right-click and select **Properties**.
@@ -55,7 +59,7 @@ For **On-Premise Business Central** with NTLM authentication, the service must o
 6.  Restart the service.
 
 > [!TIP]
-> If you use `BC_AUTH_TYPE=SSO`, the server will attempt to use the identity of the user running the service process to authenticate against Business Central.
+> If you use `BC_AUTH_TYPE=SSO`, the server will attempt to use the identity of the user running the service process to authenticate against Business Central. Ensure this user is correctly set up as a user in Business Central.
 
 ### Uninstall the Service
 Run `npm run service:uninstall` as **Administrator**.

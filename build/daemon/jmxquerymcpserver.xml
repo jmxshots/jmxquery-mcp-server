@@ -5,9 +5,9 @@
 	<executable>C:\Program Files\nodejs\node.exe</executable>
 	<argument>--harmony</argument>
 	<argument>--max_old_space_size=4096</argument>
-	<argument>c:\Entwicklung\Antigravity\JS-JMXQuery-MCPServer\node_modules\node-windows\lib\wrapper.js</argument>
+	<argument>C:\Entwicklung\Antigravity\jmxquery-mcp-server\node_modules\node-windows\lib\wrapper.js</argument>
 	<argument>--file</argument>
-	<argument>c:\Entwicklung\Antigravity\JS-JMXQuery-MCPServer\build\index.js</argument>
+	<argument>C:\Entwicklung\Antigravity\jmxquery-mcp-server\build\index.js</argument>
 	<argument>--scriptoptions=</argument>
 	<argument>--log</argument>
 	<argument>JMX-QUERY MCP Server wrapper</argument>
@@ -28,5 +28,5 @@
 		<user>LocalSystem</user>
 		<password></password>
 	</serviceaccount>
-	<workingdirectory>c:\Entwicklung\Antigravity\JS-JMXQuery-MCPServer</workingdirectory>
+	<workingdirectory>C:\Entwicklung\Antigravity\jmxquery-mcp-server</workingdirectory>
 </service>
