@@ -1,6 +1,6 @@
 # jmxquery-mcp-server
 
-This is a Model Context Protocol (MCP) server that exposes JMX-QUERY functions from Microsoft Business Central (On-Premise) to AI agents.
+This is a Model Context Protocol (MCP) server that exposes JMX-QUERY functions from Microsoft Business Central (On-Premise **and** SaaS/Online) to AI agents.
 
 ## Features
 
@@ -18,6 +18,8 @@ This is a Model Context Protocol (MCP) server that exposes JMX-QUERY functions f
 
 The server is configured via environment variables in a `.env` file.
 
+### On-Premise
+
 | Variable | Description | Example |
 | :--- | :--- | :--- |
 | `BC_ODATA_BASE_URL` | The base URL of your BC OData V4 service. | `http://bc-server:7048/BC220/ODataV4/` |
@@ -25,6 +27,38 @@ The server is configured via environment variables in a `.env` file.
 | `BC_AUTH_TYPE` | Authentication method: `BASIC`, `NTLM`, or `SSO`. | `NTLM` |
 | `BC_USERNAME` | Username for BC authentication (not needed for SSO). | `domain\user` |
 | `BC_PASSWORD` | Password for BC authentication (not needed for SSO). | `your_password` |
+
+### SaaS / Business Central Online (OAuth 2.0)
+
+Set `BC_AUTH_TYPE=OAUTH` and provide the following Azure AD App Registration values.
+`BC_ODATA_BASE_URL` is **not required** — the OData URL is auto-constructed as  
+`https://api.businesscentral.dynamics.com/v2.0/{BC_TENANT_ID}/{BC_ENVIRONMENT}/ODataV4/`.
+
+| Variable | Description | Example |
+| :--- | :--- | :--- |
+| `BC_AUTH_TYPE` | Must be `OAUTH` for SaaS. | `OAUTH` |
+| `BC_TENANT_ID` | Azure AD Tenant ID (GUID or domain). | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
+| `BC_CLIENT_ID` | App registration Client ID. | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
+| `BC_CLIENT_SECRET` | Client Secret created in the App registration. | `your-client-secret` |
+| `BC_ENVIRONMENT` | Name of the BC environment to connect to. Defaults to `Production`. | `Sandbox` |
+| `BC_COMPANY` | The name of the BC company to connect to. | `CRONUS International Ltd.` |
+
+#### Azure App Registration Setup
+
+1. In the [Azure portal](https://portal.azure.com), navigate to **Azure Active Directory → App registrations → New registration**.
+2. Give the app a name (e.g., `JMXQuery MCP Server`) and register it.
+3. Under **API permissions → Add a permission → Dynamics 365 Business Central**:
+   - Select **Application permissions** (not Delegated).
+   - Add `Financials.ReadWrite.All`.
+4. Click **Grant admin consent** for your tenant.
+5. Under **Certificates & secrets → New client secret**, create a secret and copy the value.
+6. Note the **Application (client) ID** and **Directory (tenant) ID** from the **Overview** page.
+7. In Business Central, create a user mapped to the App registration (`BC_CLIENT_ID`) with the required permissions.
+
+### Common Settings
+
+| Variable | Description | Example |
+| :--- | :--- | :--- |
 | `JMXQ_EXECUTION_CONTEXT_CODE` | Default context code for JMX-QUERY. | `DEFAULT` |
 | `MCP_HOST` | Host the MCP server should bind to. | `127.0.0.1` |
 | `MCP_PORT` | Port for the main server (includes SSE). | `5000` |
@@ -103,6 +137,7 @@ The server supports three distinct ways for AI clients to connect:
 
 Used when the agent starts the server as a local child process. Add this to your `mcp_config.json`:
 
+**On-Premise (NTLM)**
 ```json
 {
   "mcpServers": {
@@ -115,6 +150,26 @@ Used when the agent starts the server as a local child process. Add this to your
         "BC_AUTH_TYPE": "NTLM",
         "BC_USERNAME": "domain\\user",
         "BC_PASSWORD": "password"
+      }
+    }
+  }
+}
+```
+
+**SaaS / Business Central Online (OAuth 2.0)**
+```json
+{
+  "mcpServers": {
+    "jmxq-bc-saas": {
+      "command": "node",
+      "args": ["c:/Entwicklung/Antigravity/jmxquery-mcp-server/build/index.js"],
+      "env": {
+        "BC_AUTH_TYPE": "OAUTH",
+        "BC_TENANT_ID": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+        "BC_CLIENT_ID": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+        "BC_CLIENT_SECRET": "your-client-secret",
+        "BC_ENVIRONMENT": "Production",
+        "BC_COMPANY": "CRONUS International Ltd."
       }
     }
   }

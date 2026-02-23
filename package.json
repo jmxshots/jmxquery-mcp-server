@@ -15,6 +15,7 @@
     "inspect:sse": "npx @modelcontextprotocol/inspector --transport sse --server-url http://127.0.0.1:5000/mcp/sse?apiKey=your-secret-key-123"
   },
   "dependencies": {
+    "@azure/identity": "^4.13.0",
     "@fastify/cors": "^10.0.1",
     "@modelcontextprotocol/sdk": "^1.0.1",
     "dotenv": "^16.4.7",

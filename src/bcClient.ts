@@ -5,6 +5,7 @@ import { execSync } from 'child_process';
 // @ts-ignore
 import { NtlmClient } from 'node-client-ntlm';
 import { WindowsEventLogger } from './utils/eventLogger.js';
+import { getOAuthToken } from './utils/oauthProvider.js';
 
 const logger = pino({
     level: config.LOG_LEVEL,
@@ -23,7 +24,7 @@ export class BcClient {
     private readonly baseUrl: string;
 
     constructor() {
-        this.baseUrl = config.BC_ODATA_BASE_URL;
+        this.baseUrl = config.resolvedBaseUrl;
     }
 
     async callAction<T = any>(serviceName: string, actionName: string, payload: Record<string, any>): Promise<T> {
@@ -63,6 +64,21 @@ export class BcClient {
                 });
                 statusCode = response.statusCode;
                 responseBody = response.body;
+            } else if (config.BC_AUTH_TYPE === 'OAUTH') {
+                // OAuth 2.0 Bearer token (SaaS / Business Central Online)
+                const token = await getOAuthToken();
+                const { statusCode: sc, body } = await request(url.toString(), {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'Authorization': `Bearer ${token}`,
+                        'X-Request-ID': requestId,
+                    },
+                    body: JSON.stringify(payload),
+                });
+                statusCode = sc;
+                responseBody = await body.text();
             } else {
                 // Default: BASIC via undici
                 const credentials = Buffer.from(`${config.BC_USERNAME}:${config.BC_PASSWORD}`).toString('base64');
