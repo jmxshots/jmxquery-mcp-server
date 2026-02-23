@@ -1,4 +1,4 @@
-# JMX-QUERY MCP Server
+# jmxquery-mcp-server
 
 This is a Model Context Protocol (MCP) server that exposes JMX-QUERY functions from Microsoft Business Central (On-Premise) to AI agents.
 
@@ -104,7 +104,7 @@ Used when the agent starts the server as a local child process. Add this to your
   "mcpServers": {
     "jmxq-bc": {
       "command": "node",
-      "args": ["c:/Entwicklung/Antigravity/JS-JMXQuery-MCPServer/build/index.js"],
+      "args": ["c:/Entwicklung/Antigravity/jmxquery-mcp-server/build/index.js"],
       "env": {
         "BC_ODATA_BASE_URL": "http://bc-server:22048/BC22/ODataV4/",
         "BC_COMPANY": "CRONUS",

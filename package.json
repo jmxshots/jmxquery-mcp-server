@@ -1,5 +1,5 @@
 {
-  "name": "jmxq-mcp-server",
+  "name": "jmxquery-mcp-server",
   "version": "1.0.0",
   "description": "JMX-QUERY MCP Server for Business Central",
   "main": "build/index.js",
