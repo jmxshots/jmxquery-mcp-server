@@ -111,7 +111,36 @@ export class BcClient {
         }
         catch (err) {
             logger.error({ err, script: psScript }, 'PowerShell Execution Failed');
-            throw new Error(`PowerShell SSO Error: ${err.message}`);
+            let message = err.message || 'Unknown PowerShell Error';
+            // 1. Strip the long "Command failed: powershell ... -EncodedCommand <base64>" prefix
+            if (message.includes('-EncodedCommand')) {
+                message = message.split('#< CLIXML').pop() || message;
+            }
+            // 2. Try to extract JSON error from CLIXML string tags <S S="Error">...</S>
+            const jsonMatch = message.match(/{[\s\S]*"error"[\s\S]*}/);
+            if (jsonMatch) {
+                try {
+                    const parsed = JSON.parse(jsonMatch[0]);
+                    if (parsed.error?.message) {
+                        message = parsed.error.message;
+                        if (parsed.error.code) {
+                            message += ` (${parsed.error.code})`;
+                        }
+                    }
+                }
+                catch {
+                    // Fallback to the extracted string if not valid JSON
+                    message = jsonMatch[0];
+                }
+            }
+            else {
+                // 3. Fallback: Strip CLIXML tags if JSON extraction failed
+                message = message.replace(/<[^>]+>/g, '').replace(/_x000D__x000A_/g, ' ').trim();
+            }
+            if (message.includes('Authentication_InvalidCredentials') || message.includes('401')) {
+                message += '\n\nHINT: If the server is running as a Windows Service, ensure the service is configured to "Log On" as a domain user with Business Central access. The default LocalSystem account cannot use SSO.';
+            }
+            throw new Error(`BC SSO Error: ${message}`);
         }
     }
 }
