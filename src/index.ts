@@ -6,6 +6,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { createMcpServer } from './mcp/server.js';
 import { config } from './config.js';
 import { pino } from 'pino';
+import { WindowsEventLogger } from './utils/eventLogger.js';
 
 // IMPORTANT: Logs MUST go to stderr when using Stdio transport to avoid corrupting the protocol
 const logger = pino({
@@ -299,6 +300,8 @@ const start = async () => {
             logger.info(`Streamable HTTP Endpoint: http://${config.MCP_HOST}:${config.MCP_PORT}/mcp/stream`);
         }
 
+        WindowsEventLogger.info('JMX-QUERY MCP Server started successfully');
+
         const isAuthActive = !!config.MCP_API_KEY;
         if (isAuthActive) {
             logger.info('*** SECURITY: API Key Authentication is ENABLED ***');
@@ -342,6 +345,7 @@ const shutdown = async (signal: string) => {
         await fastify.close();
         logger.info('Fastify server closed successfully');
 
+        WindowsEventLogger.info('JMX-QUERY MCP Server stopped');
         process.exit(0);
     } catch (err) {
         logger.error({ err }, 'Error during shutdown');

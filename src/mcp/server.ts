@@ -190,7 +190,7 @@ export function createMcpServer() {
                 content: [{ type: 'text', text: resultText }]
             };
         } catch (error: any) {
-            logger.error({ error, tool: name }, 'Tool Call Failed');
+            logger.error({ err: error, tool: name }, 'Tool Call Failed');
             return {
                 content: [{ type: 'text', text: `Error: ${error.message}` }],
                 isError: true,

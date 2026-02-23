@@ -4,8 +4,18 @@ import { config } from './config.js';
 import { execSync } from 'child_process';
 // @ts-ignore
 import { NtlmClient } from 'node-client-ntlm';
+import { WindowsEventLogger } from './utils/eventLogger.js';
 const logger = pino({
     level: config.LOG_LEVEL,
+    transport: {
+        target: 'pino-pretty',
+        options: {
+            colorize: true,
+            ignore: 'pid,hostname',
+            translateTime: 'HH:MM:ss Z',
+            destination: 2, // 2 is stderr
+        },
+    },
 });
 export class BcClient {
     baseUrl;
@@ -64,7 +74,9 @@ export class BcClient {
             logger.info({ service: serviceName, action: actionName, statusCode, duration, requestId }, 'BC API Call Completed');
             if (statusCode >= 400) {
                 logger.error({ responseBody, statusCode, requestId }, 'BC API Error');
-                throw new Error(`BC API Error (${statusCode}): ${responseBody}`);
+                const errorMsg = `BC API Error (${statusCode}): ${responseBody}`;
+                WindowsEventLogger.error(errorMsg);
+                throw new Error(errorMsg);
             }
             const odataResponse = JSON.parse(responseBody);
             const rawValue = odataResponse.value ?? odataResponse;
@@ -79,7 +91,7 @@ export class BcClient {
             return rawValue;
         }
         catch (error) {
-            logger.error({ error, requestId }, 'BC Client Exception');
+            logger.error({ err: error, requestId }, 'BC Client Exception');
             throw error;
         }
     }
@@ -112,35 +124,45 @@ export class BcClient {
         catch (err) {
             logger.error({ err, script: psScript }, 'PowerShell Execution Failed');
             let message = err.message || 'Unknown PowerShell Error';
-            // 1. Strip the long "Command failed: powershell ... -EncodedCommand <base64>" prefix
+            // 1. Globally clean up PowerShell's CLI XML line breaks
+            message = message.replace(/_x000D__x000A_/g, ' ');
+            // 2. Strip the long "Command failed: powershell ... -EncodedCommand <base64>" prefix
             if (message.includes('-EncodedCommand')) {
                 message = message.split('#< CLIXML').pop() || message;
             }
-            // 2. Try to extract JSON error from CLIXML string tags <S S="Error">...</S>
-            const jsonMatch = message.match(/{[\s\S]*"error"[\s\S]*}/);
+            // 3. Try to extract JSON error from CLIXML string tags <S S="Error">...</S>
+            // Note: We use a more specific regex for the JSON block
+            const jsonMatch = message.match(/({(?:\s|[^}]*)"error"(?:\s|[^}]*)})/);
             if (jsonMatch) {
                 try {
-                    const parsed = JSON.parse(jsonMatch[0]);
+                    // Final cleanup before parsing to ensure valid JSON
+                    const jsonStr = jsonMatch[0].trim();
+                    const parsed = JSON.parse(jsonStr);
                     if (parsed.error?.message) {
                         message = parsed.error.message;
                         if (parsed.error.code) {
                             message += ` (${parsed.error.code})`;
                         }
                     }
+                    else if (parsed.error) {
+                        message = typeof parsed.error === 'string' ? parsed.error : JSON.stringify(parsed.error);
+                    }
                 }
                 catch {
-                    // Fallback to the extracted string if not valid JSON
+                    // Fallback to the extracted string (cleaned)
                     message = jsonMatch[0];
                 }
             }
             else {
-                // 3. Fallback: Strip CLIXML tags if JSON extraction failed
-                message = message.replace(/<[^>]+>/g, '').replace(/_x000D__x000A_/g, ' ').trim();
+                // 4. Fallback: Strip CLIXML tags if JSON extraction failed
+                message = message.replace(/<[^>]+>/g, '').trim();
             }
             if (message.includes('Authentication_InvalidCredentials') || message.includes('401')) {
                 message += '\n\nHINT: If the server is running as a Windows Service, ensure the service is configured to "Log On" as a domain user with Business Central access. The default LocalSystem account cannot use SSO.';
             }
-            throw new Error(`BC SSO Error: ${message}`);
+            const fullError = `BC SSO Error: ${message}`;
+            WindowsEventLogger.error(fullError);
+            throw new Error(fullError);
         }
     }
 }
