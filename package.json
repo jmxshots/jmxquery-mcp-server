@@ -13,7 +13,7 @@
     "service:setup": "node scripts/setup.js",
     "inspect": "npx @modelcontextprotocol/inspector node build/index.js",
     "inspect:dev": "npx @modelcontextprotocol/inspector tsx src/index.ts",
-    "inspect:sse": "npx @modelcontextprotocol/inspector --transport sse --server-url http://127.0.0.1:5000/mcp/sse?apiKey=your-secret-key-123"
+    "inspect:sse": "npx @modelcontextprotocol/inspector --transport sse --server-url http://127.0.0.1:5000/mcp/sse"
   },
   "dependencies": {
     "@azure/identity": "^4.13.0",

@@ -123,6 +123,7 @@ BC_COMPANY=CRONUS Deutschland GmbH
 MCP_HOST=127.0.0.1
 MCP_PORT=5000
 MCP_STREAMABLE_PORT=5001
+MCP_CORS_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
 ```
 
 Notes:
@@ -237,6 +238,7 @@ If OAuth fails with authorization errors, the two most common causes are:
 | `MCP_HOST` | Host the MCP server should bind to. | `127.0.0.1` |
 | `MCP_PORT` | Port for the main server (includes SSE). | `5000` |
 | `MCP_STREAMABLE_PORT` | **Optional**: Dedicated port for Streamable HTTP. | `5001` |
+| `MCP_CORS_ORIGINS` | Comma-separated CORS allowlist for browser origins. | `http://127.0.0.1:5173,http://localhost:5173` |
 | `LOG_LEVEL` | Logging verbosity (`debug`, `info`, `warn`, `error`). | `info` |
 | `HTTP_TIMEOUT_MS` | Timeout for outbound Business Central calls (HTTP / SSO bridge). | `60000` |
 | `MCP_API_KEY` | **Optional**: API key for securing SSE/HTTP access. | `your-secret-key` |

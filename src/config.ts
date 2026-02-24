@@ -4,6 +4,10 @@ import dotenv from 'dotenv';
 dotenv.config({ path: process.env.DOTENV_CONFIG_PATH || undefined });
 
 const normalizeUrl = (url: string) => url.endsWith('/') ? url : `${url}/`;
+const parseCorsOrigins = (value: string) => value
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean);
 
 const configSchema = z.object({
     BC_ODATA_BASE_URL: z.string().url().transform(normalizeUrl).optional(),
@@ -20,6 +24,7 @@ const configSchema = z.object({
     MCP_HOST: z.string().default('127.0.0.1'),
     MCP_PORT: z.coerce.number().default(5000),
     MCP_STREAMABLE_PORT: z.coerce.number().optional(),
+    MCP_CORS_ORIGINS: z.string().default('http://127.0.0.1:5173,http://localhost:5173'),
     LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
     HTTP_TIMEOUT_MS: z.coerce.number().default(60000),
     MCP_API_KEY: z.string().optional(),
@@ -41,6 +46,7 @@ const rawConfig = configSchema.parse({
     MCP_HOST: process.env.MCP_HOST,
     MCP_PORT: process.env.MCP_PORT,
     MCP_STREAMABLE_PORT: process.env.MCP_STREAMABLE_PORT,
+    MCP_CORS_ORIGINS: process.env.MCP_CORS_ORIGINS,
     LOG_LEVEL: process.env.LOG_LEVEL,
     HTTP_TIMEOUT_MS: process.env.HTTP_TIMEOUT_MS,
     MCP_API_KEY: process.env.MCP_API_KEY,
@@ -74,4 +80,6 @@ export const config = {
     ...rawConfig,
     /** Resolved OData base URL — use this instead of BC_ODATA_BASE_URL directly. */
     resolvedBaseUrl: buildResolvedBaseUrl(rawConfig),
+    /** Parsed CORS allowlist for browser-originated requests. */
+    resolvedCorsOrigins: parseCorsOrigins(rawConfig.MCP_CORS_ORIGINS),
 };

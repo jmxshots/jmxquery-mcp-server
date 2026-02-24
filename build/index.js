@@ -24,8 +24,24 @@ const fastify = Fastify({
     logger: false,
     connectionTimeout: 0,
 });
+const allowedCorsOrigins = new Set(config.resolvedCorsOrigins);
+const isCorsOriginAllowed = (origin) => {
+    // Requests without Origin (CLI/server-to-server) are allowed.
+    if (!origin) {
+        return true;
+    }
+    return allowedCorsOrigins.has(origin);
+};
+const corsOriginHandler = (origin, callback) => {
+    if (isCorsOriginAllowed(origin)) {
+        callback(null, true);
+        return;
+    }
+    logger.warn({ origin }, 'CORS origin rejected');
+    callback(null, false);
+};
 await fastify.register(cors, {
-    origin: true,
+    origin: corsOriginHandler,
     methods: ['GET', 'POST', 'OPTIONS', 'DELETE'],
     allowedHeaders: [
         'Content-Type',
@@ -81,14 +97,17 @@ fastify.get('/mcp/sse', async (request, reply) => {
     if (!isValidApiKey(request)) {
         logger.warn('Unauthorized SSE Connection attempt');
         reply.code(401)
-            .header('Access-Control-Allow-Origin', '*')
             .send({ error: 'Unauthorized', message: 'Invalid or missing API Key' });
         return;
     }
     try {
         reply.hijack();
         const res = reply.raw;
-        res.setHeader('Access-Control-Allow-Origin', '*');
+        const requestOrigin = request.headers.origin;
+        if (typeof requestOrigin === 'string' && isCorsOriginAllowed(requestOrigin)) {
+            res.setHeader('Access-Control-Allow-Origin', requestOrigin);
+            res.setHeader('Vary', 'Origin');
+        }
         res.setTimeout(0);
         // The SDK will automatically append ?sessionId=... to this endpoint.
         // Authentication must be provided via Authorization: Bearer <key> header.
@@ -109,16 +128,13 @@ fastify.get('/mcp/sse', async (request, reply) => {
         logger.error({ error }, 'Error in SSE connection handler');
         if (reply.raw && !reply.raw.writableEnded) {
             if (!reply.raw.headersSent) {
-                reply.raw.writeHead(500, { 'Access-Control-Allow-Origin': '*' });
+                reply.raw.writeHead(500);
             }
             reply.raw.end(`Server Error: ${error.message}`);
         }
     }
 });
 fastify.post('/mcp/messages', async (request, reply) => {
-    reply.raw.setHeader('Access-Control-Allow-Origin', '*');
-    reply.raw.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
-    reply.raw.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-MCP-ClientId, Authorization');
     if (request.method === 'OPTIONS') {
         reply.code(204).send();
         return;
@@ -126,7 +142,6 @@ fastify.post('/mcp/messages', async (request, reply) => {
     if (!isValidApiKey(request)) {
         logger.warn('Unauthorized Message attempt');
         reply.code(401)
-            .header('Access-Control-Allow-Origin', '*')
             .send({ error: 'Unauthorized', message: 'Invalid or missing API Key' });
         return;
     }
@@ -165,7 +180,7 @@ const streamableFastify = streamablePort ? Fastify({ logger: false, connectionTi
 if (streamablePort) {
     // Separate server needs its own CORS and timeout config
     await streamableFastify.register(cors, {
-        origin: true,
+        origin: corsOriginHandler,
         methods: ['GET', 'POST', 'OPTIONS', 'DELETE'],
         allowedHeaders: [
             'Content-Type',

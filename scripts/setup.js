@@ -80,6 +80,7 @@ function buildEnvContent(answers) {
     if (answers.MCP_STREAMABLE_PORT) {
         lines.push(`MCP_STREAMABLE_PORT=${answers.MCP_STREAMABLE_PORT}`);
     }
+    lines.push(`MCP_CORS_ORIGINS=${answers.MCP_CORS_ORIGINS}`);
     if (answers.MCP_API_KEY) {
         lines.push(`MCP_API_KEY=${answers.MCP_API_KEY}`);
     }
@@ -605,6 +606,14 @@ const config = await inquirer.prompt([
             if (await isPortInUse(port)) return `Port ${v} is already in use — choose a different port.`;
             return true;
         }
+    },
+    {
+        type: 'input',
+        name: 'MCP_CORS_ORIGINS',
+        message: 'Allowed CORS origins (comma-separated):',
+        default: e('MCP_CORS_ORIGINS', 'http://127.0.0.1:5173,http://localhost:5173'),
+        filter: (v) => String(v ?? '').trim(),
+        validate: (v) => String(v ?? '').trim().length > 0 || 'Required.'
     },
     {
         type: 'input',
