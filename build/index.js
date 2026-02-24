@@ -20,6 +20,24 @@ const logger = pino({
         },
     },
 });
+const toSafeEventMessage = (value, maxLen = 400) => {
+    const raw = typeof value === 'string'
+        ? value
+        : (value && typeof value === 'object' && 'message' in value)
+            ? String(value.message || '')
+            : String(value || 'Unknown error');
+    const redacted = raw
+        .replace(/(Authorization\s*:\s*Bearer\s+)[^\s,;]+/gi, '$1[REDACTED]')
+        .replace(/(Authorization\s*:\s*Basic\s+)[^\s,;]+/gi, '$1[REDACTED]')
+        .replace(/("?(?:password|client_secret|api_key|token)"?\s*[:=]\s*")([^"]+)(")/gi, '$1[REDACTED]$3')
+        .replace(/("?(?:password|client_secret|api_key|token)"?\s*[:=]\s*)([^\s,;]+)/gi, '$1[REDACTED]')
+        .replace(/[\r\n\t]+/g, ' ')
+        .trim();
+    if (redacted.length <= maxLen) {
+        return redacted;
+    }
+    return `${redacted.slice(0, maxLen)}...`;
+};
 const fastify = Fastify({
     logger: false,
     connectionTimeout: 0,
@@ -245,6 +263,7 @@ const startStdio = async () => {
     }
     catch (err) {
         logger.error({ err }, 'Failed to start Stdio transport');
+        WindowsEventLogger.error(`Stdio transport startup failed: ${toSafeEventMessage(err)}`);
     }
 };
 const start = async () => {
@@ -282,6 +301,7 @@ const start = async () => {
     }
     catch (err) {
         logger.error(err);
+        WindowsEventLogger.error(`MCP server startup failed: ${toSafeEventMessage(err)}`);
         process.exit(1);
     }
 };
@@ -313,6 +333,7 @@ const shutdown = async (signal) => {
     }
     catch (err) {
         logger.error({ err }, 'Error during shutdown');
+        WindowsEventLogger.error(`MCP server shutdown failed: ${toSafeEventMessage(err)}`);
         process.exit(1);
     }
 };

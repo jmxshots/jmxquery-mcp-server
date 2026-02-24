@@ -29,7 +29,6 @@ export class WindowsEventLogger {
             if (err) {
                 // Fallback to console if everything fails
                 console.error('Failed to log to Windows Event Log:', err);
-                console.error('Original Message:', message);
             }
         });
     }

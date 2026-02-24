@@ -18,6 +18,24 @@ const logger = pino({
         },
     },
 });
+function redactSensitiveText(input) {
+    if (!input)
+        return input;
+    const patterns = [
+        [/(Authorization\s*:\s*Bearer\s+)[^\s,;]+/gi, '$1[REDACTED]'],
+        [/(Authorization\s*:\s*Basic\s+)[^\s,;]+/gi, '$1[REDACTED]'],
+        [/("?(?:password|client_secret|api_key|token)"?\s*[:=]\s*")([^"]+)(")/gi, '$1[REDACTED]$3'],
+        [/("?(?:password|client_secret|api_key|token)"?\s*[:=]\s*)([^\s,;]+)/gi, '$1[REDACTED]'],
+    ];
+    return patterns.reduce((current, [pattern, replacement]) => current.replace(pattern, replacement), input);
+}
+function toSafeLogPreview(input, maxLen = 240) {
+    const redacted = redactSensitiveText(input || '').replace(/[\r\n\t]+/g, ' ').trim();
+    if (redacted.length <= maxLen) {
+        return redacted;
+    }
+    return `${redacted.slice(0, maxLen)}...`;
+}
 export class BcClient {
     baseUrl;
     constructor() {
@@ -115,10 +133,12 @@ export class BcClient {
             const duration = Date.now() - startTime;
             logger.info({ service: serviceName, action: actionName, statusCode, duration, requestId }, 'BC API Call Completed');
             if (statusCode >= 400) {
-                logger.error({ responseBody, statusCode, requestId }, 'BC API Error');
-                const errorMsg = `BC API Error (${statusCode}): ${responseBody}`;
-                WindowsEventLogger.error(errorMsg);
-                throw new Error(errorMsg);
+                const safePreview = toSafeLogPreview(responseBody);
+                logger.error({ statusCode, requestId, responseLength: responseBody?.length || 0, responsePreview: safePreview }, 'BC API Error');
+                const eventLogMsg = `BC API Error (${statusCode}) [requestId=${requestId}] ${safePreview}`;
+                const clientErrorMsg = `BC API Error (${statusCode}) [requestId=${requestId}] ${responseBody}`;
+                WindowsEventLogger.error(eventLogMsg);
+                throw new Error(clientErrorMsg);
             }
             const odataResponse = JSON.parse(responseBody);
             const rawValue = odataResponse.value ?? odataResponse;
@@ -133,7 +153,11 @@ export class BcClient {
             return rawValue;
         }
         catch (error) {
-            logger.error({ err: error, requestId }, 'BC Client Exception');
+            logger.error({
+                requestId,
+                errorName: error?.name,
+                errorMessage: toSafeLogPreview(String(error?.message || ''), 400)
+            }, 'BC Client Exception');
             throw error;
         }
     }
@@ -165,7 +189,11 @@ export class BcClient {
             return output.trim();
         }
         catch (err) {
-            logger.error({ err, script: psScript }, 'PowerShell Execution Failed');
+            logger.error({
+                requestId,
+                errorName: err?.name,
+                errorMessage: toSafeLogPreview(String(err?.message || ''), 400)
+            }, 'PowerShell Execution Failed');
             let message = err.message || 'Unknown PowerShell Error';
             // 1. Globally clean up PowerShell's CLI XML line breaks
             message = message.replace(/_x000D__x000A_/g, ' ');
@@ -203,9 +231,11 @@ export class BcClient {
             if (message.includes('Authentication_InvalidCredentials') || message.includes('401')) {
                 message += '\n\nHINT: If the server is running as a Windows Service, ensure the service is configured to "Log On" as a domain user with Business Central access. The default LocalSystem account cannot use SSO.';
             }
-            const fullError = `BC SSO Error: ${message}`;
-            WindowsEventLogger.error(fullError);
-            throw new Error(fullError);
+            const safeMessage = toSafeLogPreview(message, 400);
+            const eventLogMsg = `BC SSO Error [requestId=${requestId}]: ${safeMessage}`;
+            const clientErrorMsg = `BC SSO Error [requestId=${requestId}]: ${message}`;
+            WindowsEventLogger.error(eventLogMsg);
+            throw new Error(clientErrorMsg);
         }
     }
 }
