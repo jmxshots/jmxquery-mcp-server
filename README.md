@@ -14,6 +14,58 @@ This is a Model Context Protocol (MCP) server that exposes JMX-QUERY functions f
   - `jmxq_listExecutionContexts`, `jmxq_describeExecutionContext`, `jmxq_describeTableFields`
   - `jmxq_executeScript` (Executes scripts and returns formatted results)
 
+## Installation (Clean Windows)
+
+This section describes the minimal prerequisites and steps to install and run the MCP server on a fresh Windows machine.
+
+### Prerequisites
+
+- **Windows**: Windows 10/11 or Windows Server.
+- **Node.js (LTS)**: Install a current **Node.js LTS** release (includes `npm`).
+  - Install options:
+    - **winget** (recommended on modern Windows): `winget install --id OpenJS.NodeJS.LTS -e`
+    - **MSI installer**: download from https://nodejs.org and run the LTS installer
+  - Verify:
+    - `node --version`
+    - `npm --version`
+- **Git** (recommended): For cloning/updating the repository.
+  - Alternative: Download the repository as a ZIP and extract it.
+- **Administrator privileges**: Only required if you want to **install/manage Windows services** (`npm run service:setup`, `npm run service:install`, `npm run service:uninstall`).
+- **Network/Firewall**:
+  - Ensure the machine can reach your Business Central OData endpoint (On-Prem) or the internet (SaaS).
+  - Open the ports you configure (defaults: `5000` for SSE and `5001` for Streamable HTTP).
+
+### Installation Steps
+
+1. Get the sources:
+   - Clone (recommended):
+     ```bash
+     git clone <repo-url>
+     cd jmxquery-mcp-server
+     ```
+   - Or download ZIP and `cd` into the extracted folder.
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Build the server:
+   ```bash
+   npm run build
+   ```
+4. Create an instance configuration (`.env`):
+   - Recommended: run the guided setup wizard (run PowerShell **as Administrator** if you want it to install the Windows service):
+     ```bash
+     npm run service:setup
+     ```
+   - The wizard writes an `.env` file (default: `instances/<label>.env`) and can optionally install/start the service.
+5. Run the server:
+   - Interactive/console (uses environment variables you provide):
+     ```bash
+     npm start
+     ```
+   - Or run as a Windows service (recommended for always-on usage):
+     - Use the wizard in step 4, or see “Manual Install / Uninstall” below.
+
 ## Configuration (.env)
 
 The server is configured via environment variables in a `.env` file.
