@@ -243,6 +243,21 @@ If OAuth fails with authorization errors, the two most common causes are:
 | `HTTP_TIMEOUT_MS` | Timeout for outbound Business Central calls (HTTP / SSO bridge). | `60000` |
 | `MCP_API_KEY` | **Optional**: API key for securing SSE/HTTP access. | `your-secret-key` |
 
+### MCP_HOST Recommendation (`127.0.0.1` vs `0.0.0.0`)
+
+Use `MCP_HOST` based on where clients connect from:
+
+- `127.0.0.1`: Best default for local-only usage (same machine, maximum isolation).
+- `0.0.0.0`: Bind on all IPv4 interfaces. Use this if clients connect via hostname/IP (for example `http://<hostname>:5000`) or from other machines.
+
+Security note:
+- `0.0.0.0` increases network exposure. Combine it with firewall rules and `MCP_API_KEY` (or reverse proxy/TLS) in non-local setups.
+
+Windows service note:
+- The service installer writes environment variables into the service definition.
+- If you change `MCP_HOST` (or other `.env` values), run `service:uninstall` and `service:install` for that instance so the new values are applied.
+- A simple service restart may keep old embedded values.
+
 ## Windows Service Integration
 
 The server can be registered as a Windows service to run in the background and start automatically.
