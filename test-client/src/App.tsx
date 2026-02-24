@@ -164,6 +164,7 @@ export default function App() {
     es.onerror = (err) => {
       console.error('SSE Error:', err);
       setStatus('disconnected');
+      setEndpointUrl(null); // clear stale session — prevent auto-init with dead sessionId on reconnect
       addLog('[Error] SSE Connection lost or failed. Check API Key if required.');
     };
 
@@ -202,7 +203,7 @@ export default function App() {
     });
 
     eventSourceRef.current = es;
-  }, [apiKey]);
+  }, [apiKey, mcpServerUrl]);
 
   useEffect(() => {
     return () => {

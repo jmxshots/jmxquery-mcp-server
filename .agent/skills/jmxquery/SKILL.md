@@ -4,7 +4,7 @@ description: "Spezialisierter Skill für JMXQuery-Abfragen und Business Central 
 ---
 # JMXQuery Agent Skill
 
-Dieser Skill formalisiert den Zugriff auf den JMXQuery MCP-Server und Business Central.
+Dieser Skill formalisiert den Zugriff auf den JMXQueryP4E_DE_22 und JMXQueryP4E_Sandbox MCP-Server und Business Central.
 
 ## Kernprinzipien
 - Alle Datenzugriffe erfolgen über JMXQuery-Skripte.

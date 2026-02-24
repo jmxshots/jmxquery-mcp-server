@@ -27,6 +27,36 @@ export class BcClient {
         this.baseUrl = config.resolvedBaseUrl;
     }
 
+    private async requestTextWithTimeout(url: string, options: Parameters<typeof request>[1]) {
+        const timeoutMs = Number(config.HTTP_TIMEOUT_MS) || 60000;
+        const controller = new AbortController();
+        const timeoutHandle = setTimeout(() => {
+            controller.abort(new Error(`HTTP request timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+
+        try {
+            const { statusCode, body } = await request(url, {
+                ...(options || {}),
+                signal: controller.signal,
+            });
+            const text = await body.text();
+            return { statusCode, text };
+        } finally {
+            clearTimeout(timeoutHandle);
+        }
+    }
+
+    private async withTimeout<T>(label: string, fn: () => Promise<T>): Promise<T> {
+        const timeoutMs = Number(config.HTTP_TIMEOUT_MS) || 60000;
+
+        return await Promise.race([
+            fn(),
+            new Promise<T>((_, reject) =>
+                setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs)
+            ),
+        ]);
+    }
+
     async callAction<T = any>(serviceName: string, actionName: string, payload: Record<string, any>): Promise<T> {
         const url = new URL(`${serviceName}_${actionName}`, this.baseUrl);
         url.searchParams.append('company', config.BC_COMPANY);
@@ -52,22 +82,24 @@ export class BcClient {
                     '', // workstation
                     ''  // domain
                 );
-                const response = await (ntlmClient as any).request({
-                    url: url.toString(),
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json',
-                        'X-Request-ID': requestId,
-                    },
-                    body: JSON.stringify(payload)
-                });
+                const response = await this.withTimeout('BC NTLM request', async () =>
+                    await (ntlmClient as any).request({
+                        url: url.toString(),
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-Request-ID': requestId,
+                        },
+                        body: JSON.stringify(payload)
+                    })
+                );
                 statusCode = response.statusCode;
                 responseBody = response.body;
             } else if (config.BC_AUTH_TYPE === 'OAUTH') {
                 // OAuth 2.0 Bearer token (SaaS / Business Central Online)
                 const token = await getOAuthToken();
-                const { statusCode: sc, body } = await request(url.toString(), {
+                const resp = await this.requestTextWithTimeout(url.toString(), {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -77,12 +109,12 @@ export class BcClient {
                     },
                     body: JSON.stringify(payload),
                 });
-                statusCode = sc;
-                responseBody = await body.text();
+                statusCode = resp.statusCode;
+                responseBody = resp.text;
             } else {
                 // Default: BASIC via undici
                 const credentials = Buffer.from(`${config.BC_USERNAME}:${config.BC_PASSWORD}`).toString('base64');
-                const { statusCode: sc, body } = await request(url.toString(), {
+                const resp = await this.requestTextWithTimeout(url.toString(), {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -92,8 +124,8 @@ export class BcClient {
                     },
                     body: JSON.stringify(payload),
                 });
-                statusCode = sc;
-                responseBody = await body.text();
+                statusCode = resp.statusCode;
+                responseBody = resp.text;
             }
 
             const duration = Date.now() - startTime;
@@ -149,6 +181,7 @@ export class BcClient {
         try {
             const output = execSync(`powershell -NoProfile -NonInteractive -EncodedCommand ${base64Script}`, {
                 encoding: 'utf-8',
+                timeout: Number(config.HTTP_TIMEOUT_MS) || 60000,
                 maxBuffer: 10 * 1024 * 1024 // 10MB buffer for large responses
             });
             return output.trim();

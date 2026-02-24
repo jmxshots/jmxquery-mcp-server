@@ -1,0 +1,45 @@
+<service>
+	<id>jmxquerymcpp4e_de_25_cu3.exe</id>
+	<name>JMX-QUERY MCP - P4E_DE_25_CU3</name>
+	<description>JMX-QUERY Model Context Protocol Server for Business Central</description>
+	<executable>C:\Program Files\nodejs\node.exe</executable>
+	<argument>--harmony</argument>
+	<argument>--max_old_space_size=4096</argument>
+	<argument>C:\Entwicklung\Antigravity\jmxquery-mcp-server\node_modules\node-windows\lib\wrapper.js</argument>
+	<argument>--file</argument>
+	<argument>C:\Entwicklung\Antigravity\jmxquery-mcp-server\build\index.js</argument>
+	<argument>--scriptoptions=</argument>
+	<argument>--log</argument>
+	<argument>JMX-QUERY MCP - P4E_DE_25_CU3 wrapper</argument>
+	<argument>--grow</argument>
+	<argument>0.25</argument>
+	<argument>--wait</argument>
+	<argument>1</argument>
+	<argument>--maxrestarts</argument>
+	<argument>3</argument>
+	<argument>--abortonerror</argument>
+	<argument>n</argument>
+	<argument>--stopparentfirst</argument>
+	<argument>undefined</argument>
+	<logmode>rotate</logmode>
+	<stoptimeout>30sec</stoptimeout>
+	<env name="BC_AUTH_TYPE" value="BASIC"/>
+	<env name="BC_ODATA_BASE_URL" value="http://Lenovo-JUM.p4d.intern:25348/P4E_DE_25_CU3/ODataV4/"/>
+	<env name="BC_USERNAME" value="p4d\service"/>
+	<env name="BC_PASSWORD" value="p4d.p4d.???"/>
+	<env name="BC_COMPANY" value="P4E_Test"/>
+	<env name="MCP_HOST" value="127.0.0.1"/>
+	<env name="MCP_PORT" value="5200"/>
+	<env name="MCP_STREAMABLE_PORT" value="5201"/>
+	<env name="MCP_API_KEY" value="12345"/>
+	<env name="LOG_LEVEL" value="info"/>
+	<env name="HTTP_TIMEOUT_MS" value="60000"/>
+	<env name="JMXQ_EXECUTION_CONTEXT_CODE" value="DEFAULT"/>
+	<env name="DOTENV_CONFIG_PATH" value="C:\Entwicklung\Antigravity\jmxquery-mcp-server\instances\P4E_DE_25_CU3.env"/>
+	<serviceaccount>
+		<domain>LENOVO-JUM</domain>
+		<user>LocalSystem</user>
+		<password></password>
+	</serviceaccount>
+	<workingdirectory>C:\Entwicklung\Antigravity\jmxquery-mcp-server</workingdirectory>
+</service>

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import dotenv from 'dotenv';
 
-dotenv.config();
+dotenv.config({ path: process.env.DOTENV_CONFIG_PATH || undefined });
 
 const normalizeUrl = (url: string) => url.endsWith('/') ? url : `${url}/`;
 
@@ -18,7 +18,7 @@ const configSchema = z.object({
     BC_ENVIRONMENT: z.string().optional(),
     JMXQ_EXECUTION_CONTEXT_CODE: z.string().default('DEFAULT'),
     MCP_HOST: z.string().default('127.0.0.1'),
-    MCP_PORT: z.coerce.number().default(3000),
+    MCP_PORT: z.coerce.number().default(5000),
     MCP_STREAMABLE_PORT: z.coerce.number().optional(),
     LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
     HTTP_TIMEOUT_MS: z.coerce.number().default(60000),
