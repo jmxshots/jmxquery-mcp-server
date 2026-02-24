@@ -18,6 +18,13 @@ This is a Model Context Protocol (MCP) server that exposes JMX-QUERY functions f
 
 The server is configured via environment variables in a `.env` file.
 
+### Authentication Recommendations
+
+- **SaaS / Business Central Online**: Use **`BC_AUTH_TYPE=OAUTH`** (client credentials). This is the intended and most robust option for cloud environments.
+- **On-Premise (domain joined)**: Prefer **`BC_AUTH_TYPE=SSO`** if the server runs under a domain account that can access Business Central.
+- **On-Premise (no SSO possible)**: Use **`BC_AUTH_TYPE=NTLM`** as a fallback (requires credentials in the `.env`).
+- **`BASIC`**: Only recommended for controlled **lab/proxy** scenarios (always over TLS). In most real setups SSO or OAuth is preferable.
+
 ### On-Premise
 
 | Variable | Description | Example |
@@ -27,6 +34,72 @@ The server is configured via environment variables in a `.env` file.
 | `BC_AUTH_TYPE` | Authentication method: `BASIC`, `NTLM`, or `SSO`. | `NTLM` |
 | `BC_USERNAME` | Username for BC authentication (not needed for SSO). | `domain\user` |
 | `BC_PASSWORD` | Password for BC authentication (not needed for SSO). | `your_password` |
+
+#### On-Premise SSO Setup (Integrated Windows Authentication)
+
+`BC_AUTH_TYPE=SSO` uses the **Windows identity of the running process** to authenticate against the Business Central OData endpoint.
+In this project, SSO calls are executed via a small PowerShell bridge using `Invoke-RestMethod -UseDefaultCredentials`.
+
+This mode is usually the best choice for **domain-joined On-Premise** setups because you avoid storing passwords in the `.env` file.
+
+##### A) Prerequisites
+
+1. Your Business Central On-Prem environment must be reachable from the machine running this MCP server.
+2. The OData V4 endpoint must support Windows authentication for the account you will run under.
+3. Decide which Windows identity will run the MCP server:
+   - **Interactive/dev**: the current logged-in Windows user.
+   - **Windows service**: a dedicated **domain service account** (recommended).
+
+##### B) Create/Configure the identity in Business Central
+
+1. Create or choose a Windows/domain account (e.g. `DOMAIN\svc-jmxq-mcp`).
+2. In Business Central, open **Users** and create a user for this Windows account.
+   - Use the Windows login / authentication type appropriate for your BC version.
+3. Assign permission sets to this BC user.
+   - Recommended: `JMXQ_JMXQUERY` (least privilege)
+   - Fallback/testing: `SUPER` (not recommended for production)
+
+##### C) Configure the MCP server `.env`
+
+Example SSO config:
+
+```ini
+BC_AUTH_TYPE=SSO
+BC_ODATA_BASE_URL=http://bc-server:7048/BC220/ODataV4/
+BC_COMPANY=CRONUS Deutschland GmbH
+
+MCP_HOST=127.0.0.1
+MCP_PORT=5000
+MCP_STREAMABLE_PORT=5001
+```
+
+Notes:
+- For SSO you normally do **not** set `BC_USERNAME` / `BC_PASSWORD`.
+- `BC_ODATA_BASE_URL` must include the trailing `/ODataV4/` segment (the server normalizes a missing trailing slash).
+
+##### D) If running as a Windows Service (important)
+
+If you run SSO as a Windows service, you must change the service **Log On** user.
+
+1. Open **Services** (`services.msc`).
+2. Find your service (e.g. `JMX-QUERY MCP - P4E_DE_22`).
+3. Open **Properties → Log On**.
+4. Select **This account** and enter your domain account (e.g. `DOMAIN\svc-jmxq-mcp`).
+5. Restart the service.
+
+> [!WARNING]
+> SSO will typically fail under `LocalSystem` because it cannot authenticate to remote servers as a real domain identity.
+
+##### Troubleshooting
+
+- **401 / Authentication_InvalidCredentials**
+  - Ensure the service is running under the intended domain account (see section D).
+  - Ensure that account exists as a user in Business Central and has the required permission sets.
+- **Works in console, fails as service**
+  - That almost always means the console user has permissions, but the service account does not.
+- **Connectivity/timeouts**
+  - Verify the URL in `BC_ODATA_BASE_URL` is reachable from the MCP server machine.
+  - Increase `HTTP_TIMEOUT_MS` if your on-prem environment is slow.
 
 ### SaaS / Business Central Online (OAuth 2.0)
 
@@ -45,15 +118,64 @@ Set `BC_AUTH_TYPE=OAUTH` and provide the following Azure AD App Registration val
 
 #### Azure App Registration Setup
 
-1. In the [Azure portal](https://portal.azure.com), navigate to **Azure Active Directory → App registrations → New registration**.
-2. Give the app a name (e.g., `JMXQuery MCP Server`) and register it.
-3. Under **API permissions → Add a permission → Dynamics 365 Business Central**:
-   - Select **Application permissions** (not Delegated).
-   - Add `Financials.ReadWrite.All`.
-4. Click **Grant admin consent** for your tenant.
-5. Under **Certificates & secrets → New client secret**, create a secret and copy the value.
-6. Note the **Application (client) ID** and **Directory (tenant) ID** from the **Overview** page.
-7. In Business Central, create a user mapped to the App registration (`BC_CLIENT_ID`) with the required permissions.
+This MCP server uses **OAuth 2.0 client credentials** against Business Central SaaS.
+That means you need (A) an **Entra ID App Registration** and (B) a corresponding **Microsoft Entra application user** in Business Central with permission sets.
+
+##### A) Create the Entra ID App Registration
+
+1. Open the [Azure portal](https://portal.azure.com) (or Entra admin center) and go to **Microsoft Entra ID → App registrations → New registration**.
+2. Name it (e.g. `JMXQuery MCP Server`) and register it.
+  - Typically: **Single tenant** (same tenant as your Business Central environment).
+3. Go to **Certificates & secrets → Client secrets → New client secret**.
+  - Copy the secret value immediately and store it securely.
+  - This becomes `BC_CLIENT_SECRET`.
+4. Go to **API permissions → Add a permission**.
+  - Select **Dynamics 365 Business Central**.
+  - Choose **Application permissions** (not Delegated).
+  - Add at least: `Financials.ReadWrite.All`.
+5. Click **Grant admin consent** for your tenant.
+6. From **Overview**, copy:
+  - **Application (client) ID** → `BC_CLIENT_ID`
+  - **Directory (tenant) ID** → `BC_TENANT_ID`
+
+> [!NOTE]
+> For SaaS, the server auto-constructs the OData base URL using `BC_TENANT_ID` + `BC_ENVIRONMENT`.
+> You do **not** need to set `BC_ODATA_BASE_URL` for `BC_AUTH_TYPE=OAUTH`.
+
+##### B) Create/Authorize the Application in Business Central (Microsoft Entra applications)
+
+In Business Central you must create an **application user** for the App Registration and assign permission sets.
+
+1. Open Business Central and search for the page **Microsoft Entra applications**.
+  - Depending on your language/version it may also appear as **Azure AD applications**.
+2. Create a new entry:
+  - **Client ID**: paste the App Registration **Application (client) ID**.
+  - Provide a meaningful description/name.
+3. Assign permission sets to this application user.
+  - For JMX-QUERY use one of:
+    - `JMXQ_JMXQUERY` (recommended, least privilege)
+    - `SUPER` (works but is not recommended for production)
+4. Save the record.
+
+> [!TIP]
+> If you maintain multiple environments (e.g. Sandbox/Production), ensure `BC_ENVIRONMENT` matches the environment name in the Business Central URL.
+
+##### C) Configure the MCP server `.env`
+
+Minimum SaaS config:
+
+```ini
+BC_AUTH_TYPE=OAUTH
+BC_TENANT_ID=<tenant-guid>
+BC_CLIENT_ID=<app-registration-client-id>
+BC_CLIENT_SECRET=<client-secret>
+BC_ENVIRONMENT=Sandbox
+BC_COMPANY=<exact company display name>
+```
+
+If OAuth fails with authorization errors, the two most common causes are:
+- Missing **admin consent** for the Business Central API permissions in Entra ID.
+- Missing/insufficient **permission sets** on the Business Central **Microsoft Entra application user**.
 
 ### Common Settings
 
@@ -93,15 +215,7 @@ The wizard will:
 
 The wizard also supports a **Delete mode** (uninstall service + remove `.env`).
 
-After completion the wizard prints a summary:
-```
-══════════════════════════════════════════════
-  Service name : JMX-QUERY MCP - InstanceName
-  SSE port     : 5000
-  Stream port  : 5001
-  Env file     : ..\instances\InstanceName.env
-══════════════════════════════════════════════
-```
+After completion the wizard prints a summary (service name, ports, env file path).
 
 ### Manual Install / Uninstall
 
