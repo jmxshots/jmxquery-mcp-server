@@ -501,7 +501,7 @@ const config = await inquirer.prompt([
         type: 'input',
         name: 'MCP_PORT',
         message: 'MCP SSE port:',
-        default: e('MCP_PORT', '3000'),
+        default: e('MCP_PORT', '5000'),
         validate: async (v) => {
             if (!Number.isInteger(Number(v)) || Number(v) <= 0) return 'Must be a valid port number.';
             if (await isPortInUse(Number(v))) return `Port ${v} is already in use — choose a different port.`;

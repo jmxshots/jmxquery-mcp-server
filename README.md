@@ -64,6 +64,7 @@ Set `BC_AUTH_TYPE=OAUTH` and provide the following Azure AD App Registration val
 | `MCP_PORT` | Port for the main server (includes SSE). | `5000` |
 | `MCP_STREAMABLE_PORT` | **Optional**: Dedicated port for Streamable HTTP. | `5001` |
 | `LOG_LEVEL` | Logging verbosity (`debug`, `info`, `warn`, `error`). | `info` |
+| `HTTP_TIMEOUT_MS` | Timeout for outbound Business Central calls (HTTP / SSO bridge). | `60000` |
 | `MCP_API_KEY` | **Optional**: API key for securing SSE/HTTP access. | `your-secret-key` |
 
 ## Windows Service Integration
@@ -87,16 +88,18 @@ The wizard will:
 2. Let you choose the **authentication type** — and warn you if you choose NTLM (see note below)
 3. Ask only the fields **relevant to the chosen auth type**
 4. Show a **preview** of the generated `.env` file (secrets masked)
-5. Write the `.env` file to a path of your choice (default: `instances/<label>.env`)
+5. Write the `.env` file to a path of your choice (default: `instances/<sanitized-label>.env`)
 6. Optionally **install and start the Windows service** immediately
+
+The wizard also supports a **Delete mode** (uninstall service + remove `.env`).
 
 After completion the wizard prints a summary:
 ```
 ══════════════════════════════════════════════
-  Service name : JMX-QUERY MCP - CompanyA Prod
+  Service name : JMX-QUERY MCP - InstanceName
   SSE port     : 5000
   Stream port  : 5001
-  Env file     : C:\configs\companyA.env
+  Env file     : ..\instances\InstanceName.env
 ══════════════════════════════════════════════
 ```
 
@@ -121,7 +124,7 @@ node scripts/uninstall-service.js --instance "CompanyA Prod"
 | Argument | Description | Default |
 | :--- | :--- | :--- |
 | `--instance <label>` | Suffix of the Windows service name (`JMX-QUERY MCP - <label>`) | `Server` |
-| `--env-file <path>` | Path to the `.env` file this instance should use | *(uses `.env` in working directory)* |
+| `--env-file <path>` | Path to the `.env` file this instance should use | *(recommended)* |
 
 ### Running Multiple Instances in Parallel
 
