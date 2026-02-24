@@ -11,6 +11,39 @@ const __dirname = path.dirname(__filename);
 
 const SERVICE_PREFIX = 'JMX-QUERY MCP - ';
 
+function abort(message = 'Setup aborted — no files written.') {
+    // Keep output minimal and consistent (no stack traces)
+    console.log(`\n\n${message}`);
+    process.exit(0);
+}
+
+function isUserAbortError(err) {
+    const name = String(err?.name || '');
+    const code = String(err?.code || '');
+    const message = String(err?.message || '');
+
+    // Inquirer (varies by version) can throw ExitPromptError or similar on Ctrl+C / Esc.
+    if (name === 'ExitPromptError') return true;
+    if (code === 'EXIT_PROMPT') return true;
+    if (/force closed|user force|aborted|canceled|cancelled/i.test(message)) return true;
+    return false;
+}
+
+// Ensure Ctrl+C / prompt abort never prints a stack trace.
+process.on('SIGINT', () => abort());
+process.on('SIGTERM', () => abort('Setup terminated.'));
+process.on('unhandledRejection', (reason) => {
+    if (isUserAbortError(reason)) abort();
+    // Real errors should remain visible
+    console.error(reason);
+    process.exit(1);
+});
+process.on('uncaughtException', (err) => {
+    if (isUserAbortError(err)) abort();
+    console.error(err);
+    process.exit(1);
+});
+
 // Returns true if something is already listening on the given port
 function isPortInUse(port) {
     return new Promise((resolve) => {
@@ -122,11 +155,7 @@ function uninstallService(serviceName) {
 
 // ── Main ───────────────────────────────────────────────────────────────────
 
-// Option C: clean Ctrl+C handler — no stack trace, no files written
-process.on('SIGINT', () => {
-    console.log('\n\nSetup aborted — no files written.');
-    process.exit(0);
-});
+// Ctrl+C handler is registered globally above.
 
 console.log('\n══════════════════════════════════════════════');
 console.log('   JMX-QUERY MCP Server — Instance Setup');
@@ -138,7 +167,7 @@ const { mode } = await inquirer.prompt([
     {
         type: 'list',
         name: 'mode',
-        message: 'What would you like to do?  [Create/Edit / Delete / Exit]:',
+        message: 'What would you like to do?  [Create / Edit / Delete / Exit]:',
         choices: [
             { name: 'Create / Edit instance', value: 'create' },
             { name: 'Delete instance (uninstall service + remove .env)', value: 'delete' },
@@ -152,7 +181,9 @@ const { mode } = await inquirer.prompt([
 // Normalize: inquirer may return name text instead of value in some Node.js versions
 const normalizedMode = (() => {
     const m = String(mode).toLowerCase();
-    if (m === 'create' || m.startsWith('create')) return 'create';
+    // Some inquirer versions return unexpected tokens (e.g. 'edit')
+    // even though the choice value is 'create'. Be permissive here.
+    if (m === 'create' || m.startsWith('create') || m === 'edit' || m.startsWith('edit') || m.includes('edit')) return 'create';
     if (m === 'delete') return 'delete';
     return 'exit';
 })();
@@ -354,6 +385,16 @@ if (fs.existsSync(envFilePath)) {
 // Helper: return existing value if present, else fallback
 const e = (key, fallback = '') => (existing[key] !== undefined && existing[key] !== '') ? existing[key] : fallback;
 
+const existingMcpPort = (() => {
+    const v = Number(existing.MCP_PORT);
+    return Number.isFinite(v) && v > 0 ? v : null;
+})();
+
+const existingStreamablePort = (() => {
+    const v = Number(existing.MCP_STREAMABLE_PORT);
+    return Number.isFinite(v) && v > 0 ? v : null;
+})();
+
 // Helper: normalize BC_AUTH_TYPE regardless of whether inquirer returns value or name text
 const authType = (a) => {
     const raw = String(a.BC_AUTH_TYPE || '').toUpperCase();
@@ -383,41 +424,61 @@ const LOG_CHOICES = [
     { name: 'error — Errors only', value: 'error' },
 ];
 
-const config = await inquirer.prompt([
-    {
-        type: 'list',
-        name: 'BC_AUTH_TYPE',
-        message: 'Authentication type  [OAUTH / SSO / NTLM / BASIC]:',
-        choices: AUTH_CHOICES,
-        default: e('BC_AUTH_TYPE', 'OAUTH')
-    },
-    // Option A: abort chosen in auth list
-    {
-        type: 'confirm',
-        name: '_abortAck',
-        message: 'Abort setup — no files will be written. Confirm?',
-        when: (a) => authType(a) === '__ABORT__',
-        default: true
-    },
+async function chooseAuthTypeInteractive() {
+    // Loop until a valid auth type is selected (or the user aborts).
+    while (true) {
+        const { BC_AUTH_TYPE } = await inquirer.prompt([
+            {
+                type: 'list',
+                name: 'BC_AUTH_TYPE',
+                message: 'Authentication type  [OAUTH / SSO / NTLM / BASIC]:',
+                choices: AUTH_CHOICES,
+                default: e('BC_AUTH_TYPE', 'OAUTH')
+            }
+        ]);
 
-    // NTLM warning
-    {
-        type: 'confirm',
-        name: 'ntlmWarningAck',
-        message:
-            '⚠  NTLM erfordert Plaintext-Credentials in der .env-Datei.\n' +
-            '   Falls der Service unter einem AD-Account läuft, ist SSO die sicherere Alternative.\n' +
-            '   Trotzdem mit NTLM fortfahren?',
-        when: (a) => authType(a) === 'NTLM',
-        default: false
-    },
+        const selected = authType({ BC_AUTH_TYPE });
+
+        if (selected === '__ABORT__') {
+            abort();
+        }
+
+        if (selected === 'NTLM') {
+            const { ntlmWarningAck } = await inquirer.prompt([
+                {
+                    type: 'confirm',
+                    name: 'ntlmWarningAck',
+                    message:
+                        '⚠  NTLM requires plaintext credentials in the .env file.\n' +
+                        '   If the service runs under an AD account, SSO is usually the safer alternative.\n' +
+                        '   Continue with NTLM anyway?',
+                    default: false
+                }
+            ]);
+
+            if (!ntlmWarningAck) {
+                console.log('\nNTLM cancelled. Please select a different authentication type.\n');
+                continue;
+            }
+
+            return { BC_AUTH_TYPE: 'NTLM', ntlmWarningAck: true };
+        }
+
+        return { BC_AUTH_TYPE: selected };
+    }
+}
+
+const authSelection = await chooseAuthTypeInteractive();
+const selectedAuthType = authSelection.BC_AUTH_TYPE;
+
+const config = await inquirer.prompt([
 
     // OAUTH-specific fields
     {
         type: 'input',
         name: 'BC_TENANT_ID',
         message: 'Azure AD Tenant ID (GUID):',
-        when: (a) => authType(a) === 'OAUTH',
+        when: () => selectedAuthType === 'OAUTH',
         default: e('BC_TENANT_ID'),
         validate: (v) => v.trim().length > 0 || 'Required.'
     },
@@ -425,7 +486,7 @@ const config = await inquirer.prompt([
         type: 'input',
         name: 'BC_CLIENT_ID',
         message: 'Azure AD Client ID (GUID):',
-        when: (a) => authType(a) === 'OAUTH',
+        when: () => selectedAuthType === 'OAUTH',
         default: e('BC_CLIENT_ID'),
         validate: (v) => v.trim().length > 0 || 'Required.'
     },
@@ -435,16 +496,25 @@ const config = await inquirer.prompt([
         message: existing.BC_CLIENT_SECRET
             ? 'Azure AD Client Secret (press Enter to keep existing):'
             : 'Azure AD Client Secret:',
-        when: (a) => authType(a) === 'OAUTH',
+        when: () => selectedAuthType === 'OAUTH',
         mask: '*',
-        default: e('BC_CLIENT_SECRET'),
-        validate: (v) => v.trim().length > 0 || 'Required.'
+        default: '',
+        filter: (v) => {
+            const s = String(v ?? '').trim();
+            return s.length > 0 ? s : e('BC_CLIENT_SECRET', '');
+        },
+        validate: (v) => {
+            const s = String(v ?? '').trim();
+            if (s.length > 0) return true;
+            if (existing.BC_CLIENT_SECRET) return true;
+            return 'Required.';
+        }
     },
     {
         type: 'input',
         name: 'BC_ENVIRONMENT',
         message: 'BC Environment name:',
-        when: (a) => authType(a) === 'OAUTH',
+        when: () => selectedAuthType === 'OAUTH',
         default: e('BC_ENVIRONMENT', 'Production')
     },
 
@@ -453,7 +523,7 @@ const config = await inquirer.prompt([
         type: 'input',
         name: 'BC_ODATA_BASE_URL',
         message: 'BC OData base URL (e.g. http://bc-server:7048/BC220/ODataV4/):',
-        when: (a) => authType(a) !== 'OAUTH',
+        when: () => selectedAuthType !== 'OAUTH',
         default: e('BC_ODATA_BASE_URL'),
         validate: (v) => {
             try { new URL(v); return true; } catch { return 'Must be a valid URL.'; }
@@ -465,7 +535,7 @@ const config = await inquirer.prompt([
         type: 'input',
         name: 'BC_USERNAME',
         message: 'BC Username (DOMAIN\\user or user@domain):',
-        when: (a) => authType(a) === 'BASIC' || (authType(a) === 'NTLM' && a.ntlmWarningAck),
+        when: () => selectedAuthType === 'BASIC' || selectedAuthType === 'NTLM',
         default: e('BC_USERNAME'),
         validate: (v) => v.trim().length > 0 || 'Required.'
     },
@@ -475,10 +545,19 @@ const config = await inquirer.prompt([
         message: existing.BC_PASSWORD
             ? 'BC Password (press Enter to keep existing):'
             : 'BC Password:',
-        when: (a) => authType(a) === 'BASIC' || (authType(a) === 'NTLM' && a.ntlmWarningAck),
+        when: () => selectedAuthType === 'BASIC' || selectedAuthType === 'NTLM',
         mask: '*',
-        default: e('BC_PASSWORD'),
-        validate: (v) => v.trim().length > 0 || 'Required.'
+        default: '',
+        filter: (v) => {
+            const s = String(v ?? '').trim();
+            return s.length > 0 ? s : e('BC_PASSWORD', '');
+        },
+        validate: (v) => {
+            const s = String(v ?? '').trim();
+            if (s.length > 0) return true;
+            if (existing.BC_PASSWORD) return true;
+            return 'Required.';
+        }
     },
 
     // Common BC fields
@@ -503,8 +582,11 @@ const config = await inquirer.prompt([
         message: 'MCP SSE port:',
         default: e('MCP_PORT', '5000'),
         validate: async (v) => {
-            if (!Number.isInteger(Number(v)) || Number(v) <= 0) return 'Must be a valid port number.';
-            if (await isPortInUse(Number(v))) return `Port ${v} is already in use — choose a different port.`;
+            const port = Number(v);
+            if (!Number.isInteger(port) || port <= 0) return 'Must be a valid port number.';
+            // Editing an existing instance: allow keeping the current port even if it's in use.
+            if (existingMcpPort !== null && port === existingMcpPort) return true;
+            if (await isPortInUse(port)) return `Port ${v} is already in use — choose a different port.`;
             return true;
         }
     },
@@ -515,9 +597,12 @@ const config = await inquirer.prompt([
         default: e('MCP_STREAMABLE_PORT', ''),
         validate: async (v, a) => {
             if (!v || v.trim() === '') return true;
-            if (!Number.isInteger(Number(v)) || Number(v) <= 0) return 'Must be a valid port number.';
-            if (Number(v) === Number(a.MCP_PORT)) return `Port ${v} is already used for the SSE port — choose a different port.`;
-            if (await isPortInUse(Number(v))) return `Port ${v} is already in use — choose a different port.`;
+            const port = Number(v);
+            if (!Number.isInteger(port) || port <= 0) return 'Must be a valid port number.';
+            if (port === Number(a.MCP_PORT)) return `Port ${v} is already used for the SSE port — choose a different port.`;
+            // Editing an existing instance: allow keeping the current port even if it's in use.
+            if (existingStreamablePort !== null && port === existingStreamablePort) return true;
+            if (await isPortInUse(port)) return `Port ${v} is already in use — choose a different port.`;
             return true;
         }
     },
@@ -550,20 +635,12 @@ const config = await inquirer.prompt([
     }
 ]);
 
-// Merge phase 1 + phase 2, and normalize BC_AUTH_TYPE to clean value
-const answers = { instanceLabel, envFilePath, ...config };
-answers.BC_AUTH_TYPE = authType(answers);
+// Merge phase 1 + auth selection + the remaining configuration fields
+// (Auth selection already handled abort/NTLM warning looping.)
+const answers = { instanceLabel, envFilePath, ...authSelection, ...config };
 
-// Abort if "Abort setup" was chosen (Option A)
-if (answers.BC_AUTH_TYPE === '__ABORT__') {
-    console.log('\nSetup aborted — no files written.');
-    process.exit(0);
-}
-
-// Abort if NTLM was not acknowledged
-if (answers.BC_AUTH_TYPE === 'NTLM' && answers.ntlmWarningAck === false) {
-    console.log('\nSetup aborted.');
-    process.exit(0);
+if (!answers.BC_AUTH_TYPE) {
+    abort();
 }
 
 const serviceName = `${SERVICE_PREFIX}${answers.instanceLabel}`;
@@ -571,7 +648,12 @@ const envContent = buildEnvContent(answers);
 
 // Show preview
 console.log('\n── .env preview ───────────────────────────────');
-console.log(envContent.replace(/SECRET=.+/g, 'SECRET=***').replace(/PASSWORD=.+/g, 'PASSWORD=***'));
+console.log(
+    envContent
+        .replace(/SECRET=.+/g, 'SECRET=***')
+        .replace(/PASSWORD=.+/g, 'PASSWORD=***')
+        .replace(/MCP_API_KEY=.+/g, 'MCP_API_KEY=***')
+);
 console.log('───────────────────────────────────────────────\n');
 
 const { confirmWrite } = await inquirer.prompt([
