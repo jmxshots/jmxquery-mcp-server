@@ -9,12 +9,16 @@ async function test() {
     } catch (e: any) { console.log(`SSE No Key Error: ${e.message}`); }
 
     try {
-        const res = await fetch(`${BASE_URL}/mcp/sse?apiKey=wrong`);
+        const res = await fetch(`${BASE_URL}/mcp/sse`, {
+            headers: { 'Authorization': 'Bearer wrong' }
+        });
         console.log(`SSE Wrong Key: ${res.status} (Expected: 401)`);
     } catch (e: any) { console.log(`SSE Wrong Key Error: ${e.message}`); }
 
     try {
-        const res = await fetch(`${BASE_URL}/mcp/sse?apiKey=your-secret-key-123`);
+        const res = await fetch(`${BASE_URL}/mcp/sse`, {
+            headers: { 'Authorization': 'Bearer your-secret-key-123' }
+        });
         console.log(`SSE Correct Key: ${res.status} (Expected: 200)`);
     } catch (e: any) {
         console.log(`SSE Correct Key Error: ${e.message}`);

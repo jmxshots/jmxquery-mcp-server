@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { fetchEventSource, type EventSourceMessage } from '@microsoft/fetch-event-source';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import ChatClient from './ChatClient';
@@ -35,7 +36,7 @@ export default function App() {
   const [chatSessionId, setChatSessionId] = useState(() => localStorage.getItem('chat_session_id') || '');
   const [sidebarWidth, setSidebarWidth] = useState(() => Number(localStorage.getItem('sidebar_width')) || 350);
   const [isResizing, setIsResizing] = useState(false);
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const sseAbortRef = useRef<AbortController | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -132,9 +133,9 @@ export default function App() {
   };
 
   const disconnect = useCallback(() => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
+    if (sseAbortRef.current) {
+      sseAbortRef.current.abort();
+      sseAbortRef.current = null;
     }
     setStatus('disconnected');
     setEndpointUrl(null);
@@ -143,71 +144,93 @@ export default function App() {
   }, []);
 
   const connect = useCallback(() => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
+    if (sseAbortRef.current) {
+      sseAbortRef.current.abort();
+      sseAbortRef.current = null;
     }
 
     setStatus('connecting');
     setEndpointUrl(null);
     setTools([]);
 
-    const url = new URL(`${mcpServerUrl}/mcp/sse`);
-    if (apiKey) url.searchParams.set('apiKey', apiKey.trim());
+    const controller = new AbortController();
+    sseAbortRef.current = controller;
 
-    const es = new EventSource(url.toString());
+    const headers: Record<string, string> = {};
+    if (apiKey?.trim()) {
+      headers['Authorization'] = `Bearer ${apiKey.trim()}`;
+    }
 
-    es.onopen = () => {
-      setStatus('connected');
-      addLog('[System] SSE Connected.');
-    };
+    void fetchEventSource(`${mcpServerUrl}/mcp/sse`, {
+      method: 'GET',
+      headers,
+      signal: controller.signal,
+      onopen: async (response: Response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        setStatus('connected');
+        addLog('[System] SSE Connected.');
+      },
+      onmessage: (event: EventSourceMessage) => {
+        if (event.event === 'endpoint') {
+          const url = event.data;
+          setEndpointUrl(url);
+          addLog(`[System] Server ready at ${url}`);
+          return;
+        }
 
-    es.onerror = (err) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.result && data.id === 'list-tools-req') {
+            setTools(data.result.tools || []);
+          } else if (data.result && data.id?.toString().startsWith('call-')) {
+            const rawText = JSON.stringify(data.result, null, 2);
+            setLastResult(rawText);
+
+            // Try to extract text tag from content array
+            const contentText = data.result.content?.[0]?.text;
+            setExtractedText(contentText || null);
+            setActiveTab(contentText ? 'value' : 'raw');
+
+            addLog('✅ [TOOL RESULT] received.');
+          } else if (data.error) {
+            addLog('\n❌ [TOOL ERROR]:\n' + JSON.stringify(data.error, null, 2));
+            setLastResult(JSON.stringify(data.error, null, 2));
+            setExtractedText(null);
+            setActiveTab('raw');
+          } else {
+            addLog(`[SSE Message]: ${event.data.substring(0, 100)}...`);
+          }
+        } catch {
+          addLog(`[SSE Message]: ${event.data.substring(0, 100)}...`);
+        }
+      },
+      onclose() {
+        if (!controller.signal.aborted) {
+          setStatus('disconnected');
+          setEndpointUrl(null);
+          addLog('[Error] SSE stream closed by server.');
+        }
+      },
+      onerror: (err: unknown) => {
+        throw err;
+      }
+    }).catch((err: unknown) => {
+      if (controller.signal.aborted) {
+        return;
+      }
       console.error('SSE Error:', err);
       setStatus('disconnected');
       setEndpointUrl(null); // clear stale session — prevent auto-init with dead sessionId on reconnect
       addLog('[Error] SSE Connection lost or failed. Check API Key if required.');
-    };
-
-    es.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.result && data.id === 'list-tools-req') {
-          setTools(data.result.tools || []);
-        } else if (data.result && data.id?.toString().startsWith('call-')) {
-          const rawText = JSON.stringify(data.result, null, 2);
-          setLastResult(rawText);
-
-          // Try to extract text tag from content array
-          const contentText = data.result.content?.[0]?.text;
-          setExtractedText(contentText || null);
-          setActiveTab(contentText ? 'value' : 'raw');
-
-          addLog('✅ [TOOL RESULT] received.');
-        } else if (data.error) {
-          addLog('\n❌ [TOOL ERROR]:\n' + JSON.stringify(data.error, null, 2));
-          setLastResult(JSON.stringify(data.error, null, 2));
-          setExtractedText(null);
-          setActiveTab('raw');
-        } else {
-          addLog(`[SSE Message]: ${event.data.substring(0, 100)}...`);
-        }
-      } catch (e) {
-        addLog(`[SSE Message]: ${event.data.substring(0, 100)}...`);
-      }
-    };
-
-    es.addEventListener('endpoint', (event: any) => {
-      const url = event.data;
-      setEndpointUrl(url);
-      addLog(`[System] Server ready at ${url}`);
     });
-
-    eventSourceRef.current = es;
   }, [apiKey, mcpServerUrl]);
 
   useEffect(() => {
     return () => {
-      eventSourceRef.current?.close();
+      sseAbortRef.current?.abort();
+      sseAbortRef.current = null;
     };
   }, []);
 

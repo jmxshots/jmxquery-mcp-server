@@ -57,14 +57,11 @@ const isValidApiKey = (request) => {
     const bearerToken = (typeof authHeader === 'string' && authHeader.startsWith('Bearer '))
         ? authHeader.substring(7).trim()
         : null;
-    const queryKey = request.query?.apiKey;
-    const trimmedQueryKey = (typeof queryKey === 'string') ? queryKey.trim() : null;
-    const providedKey = bearerToken || trimmedQueryKey;
+    const providedKey = bearerToken;
     const isValid = providedKey === configKey;
     logger.info({
         path: request.url,
         hasAuthHeader: !!authHeader,
-        hasQueryKey: !!queryKey,
         providedKeyLength: providedKey?.length || 0,
         expectedKeyLength: configKey.length,
         isValid
@@ -93,15 +90,9 @@ fastify.get('/mcp/sse', async (request, reply) => {
         const res = reply.raw;
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setTimeout(0);
-        // The SDK will automatically append ?sessionId=... to this endpoint
-        // If an API Key is configured, we append it here so that clients (like MCP Inspector)
-        // automatically use it for all subsequent POST requests.
-        const configKey = config.MCP_API_KEY?.trim();
-        const endpointBase = '/mcp/messages';
-        const messageEndpoint = configKey
-            ? `${endpointBase}?apiKey=${encodeURIComponent(configKey)}`
-            : endpointBase;
-        const transport = new SSEServerTransport(messageEndpoint, res);
+        // The SDK will automatically append ?sessionId=... to this endpoint.
+        // Authentication must be provided via Authorization: Bearer <key> header.
+        const transport = new SSEServerTransport('/mcp/messages', res);
         const sessionId = transport.sessionId;
         activeTransports.set(sessionId, transport);
         logger.info({ sessionId }, 'New SSE Transport created');
