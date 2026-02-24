@@ -10,6 +10,7 @@
     "dev": "tsx watch src/index.ts",
     "service:install": "node scripts/install-service.js",
     "service:uninstall": "node scripts/uninstall-service.js",
+    "service:setup": "node scripts/setup.js",
     "inspect": "npx @modelcontextprotocol/inspector node build/index.js",
     "inspect:dev": "npx @modelcontextprotocol/inspector tsx src/index.ts",
     "inspect:sse": "npx @modelcontextprotocol/inspector --transport sse --server-url http://127.0.0.1:5000/mcp/sse?apiKey=your-secret-key-123"
@@ -20,6 +21,7 @@
     "@modelcontextprotocol/sdk": "^1.0.1",
     "dotenv": "^16.4.7",
     "fastify": "^5.2.1",
+    "inquirer": "^13.3.0",
     "node-client-ntlm": "^0.0.6",
     "node-windows": "^1.0.0-beta.8",
     "pino": "^9.6.0",

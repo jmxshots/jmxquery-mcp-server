@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import dotenv from 'dotenv';
 
-dotenv.config();
+dotenv.config({ path: process.env.DOTENV_CONFIG_PATH || undefined });
 
 const normalizeUrl = (url: string) => url.endsWith('/') ? url : `${url}/`;
 

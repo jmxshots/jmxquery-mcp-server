@@ -69,13 +69,98 @@ Set `BC_AUTH_TYPE=OAUTH` and provide the following Azure AD App Registration val
 ## Windows Service Integration
 
 The server can be registered as a Windows service to run in the background and start automatically.
+Multiple instances can run in parallel — each pointing to a different BC instance on its own ports.
 
 > [!IMPORTANT]
 > Running the service management scripts requires **Administrator privileges**.
 
-### Install the Service
-1. **Build the project**: `npm run build`
-2. **Install**: Run `npm run service:install` as **Administrator**.
+### Guided Setup (recommended)
+
+The interactive setup wizard guides you through the full configuration, writes the `.env` file, and optionally installs the Windows service in one step:
+
+```bash
+npm run service:setup
+```
+
+The wizard will:
+1. Ask for an **instance label** (suffix of the Windows service name, e.g. `CompanyA Prod`)
+2. Let you choose the **authentication type** — and warn you if you choose NTLM (see note below)
+3. Ask only the fields **relevant to the chosen auth type**
+4. Show a **preview** of the generated `.env` file (secrets masked)
+5. Write the `.env` file to a path of your choice (default: `instances/<label>.env`)
+6. Optionally **install and start the Windows service** immediately
+
+After completion the wizard prints a summary:
+```
+══════════════════════════════════════════════
+  Service name : JMX-QUERY MCP - CompanyA Prod
+  SSE port     : 5000
+  Stream port  : 5001
+  Env file     : C:\configs\companyA.env
+══════════════════════════════════════════════
+```
+
+### Manual Install / Uninstall
+
+If you prefer to install manually, build first and then use the install script:
+
+```bash
+npm run build
+
+# Single (default) instance — service name: "JMX-QUERY MCP - Server"
+npm run service:install
+
+# Named instance with a dedicated .env file
+node scripts/install-service.js --instance "CompanyA Prod" --env-file "C:\configs\companyA.env"
+
+# Uninstall
+npm run service:uninstall
+node scripts/uninstall-service.js --instance "CompanyA Prod"
+```
+
+| Argument | Description | Default |
+| :--- | :--- | :--- |
+| `--instance <label>` | Suffix of the Windows service name (`JMX-QUERY MCP - <label>`) | `Server` |
+| `--env-file <path>` | Path to the `.env` file this instance should use | *(uses `.env` in working directory)* |
+
+### Running Multiple Instances in Parallel
+
+Each instance needs its own `.env` file with **unique port numbers** and its own **Windows service name** (via `--instance`):
+
+```bash
+# Instance 1 — CompanyA Production
+node scripts/install-service.js --instance "CompanyA Prod" --env-file "C:\configs\companyA-prod.env"
+
+# Instance 2 — CompanyB Test
+node scripts/install-service.js --instance "CompanyB Test" --env-file "C:\configs\companyB-test.env"
+```
+
+Example `companyA-prod.env`:
+```ini
+BC_AUTH_TYPE=OAUTH
+BC_TENANT_ID=xxxxxxxx-...
+BC_CLIENT_ID=xxxxxxxx-...
+BC_CLIENT_SECRET=your-secret
+BC_ENVIRONMENT=Production
+BC_COMPANY=CRONUS International Ltd.
+MCP_PORT=5000
+MCP_STREAMABLE_PORT=5001
+```
+
+Example `companyB-test.env`:
+```ini
+BC_AUTH_TYPE=NTLM
+BC_ODATA_BASE_URL=http://bc-server:7048/BC220/ODataV4/
+BC_USERNAME=domain\user
+BC_PASSWORD=your-password
+BC_COMPANY=CRONUS DE
+MCP_PORT=5002
+MCP_STREAMABLE_PORT=5003
+```
+
+Both services appear in **Services Manager** (`services.msc`) as:
+- `JMX-QUERY MCP - CompanyA Prod`
+- `JMX-QUERY MCP - CompanyB Test`
 
 ### Windows Service User (Service Account)
 
@@ -83,10 +168,12 @@ For **On-Premise Business Central** with NTLM or SSO authentication, the service
 
 > [!WARNING]
 > **SSO/Integrated Windows Authentication** will **FAIL** if the service runs under the default `LocalSystem` account. `LocalSystem` does not have an identity that can be used for network authentication against Business Central.
+>
+> **NTLM** requires explicit `BC_USERNAME` / `BC_PASSWORD` credentials in the `.env` file — it does **not** use the service account identity automatically. If the server runs under an AD account that has BC access, use **SSO** instead.
 
 To configure the service account:
 1.  Open **Services Manager** (`services.msc`).
-2.  Locate **"JMX-QUERY MCP Server"**.
+2.  Locate the service (e.g., **"JMX-QUERY MCP - Server"**).
 3.  Right-click and select **Properties**.
 4.  Switch to the **Log On** tab.
 5.  Select **This account** and enter the domain credentials (e.g., `DOMAIN\ServiceUser`).
@@ -94,9 +181,6 @@ To configure the service account:
 
 > [!TIP]
 > If you use `BC_AUTH_TYPE=SSO`, the server will attempt to use the identity of the user running the service process to authenticate against Business Central. Ensure this user is correctly set up as a user in Business Central.
-
-### Uninstall the Service
-Run `npm run service:uninstall` as **Administrator**.
 
 ## Test Client
 

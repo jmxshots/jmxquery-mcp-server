@@ -5,9 +5,17 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Parse CLI arguments: --instance <label>
+const args = process.argv.slice(2);
+const instanceIndex = args.indexOf('--instance');
+const instanceLabel = instanceIndex !== -1 ? args[instanceIndex + 1] : 'Server';
+const serviceName = `JMX-QUERY MCP - ${instanceLabel}`;
+
+console.log(`Uninstalling service: "${serviceName}"`);
+
 // Create a new service object
 const svc = new Service({
-    name: 'JMX-QUERY MCP Server',
+    name: serviceName,
     script: path.join(__dirname, '..', 'build', 'index.js')
 });
 
