@@ -2,10 +2,24 @@ import { z } from 'zod';
 import dotenv from 'dotenv';
 dotenv.config({ path: process.env.DOTENV_CONFIG_PATH || undefined });
 const normalizeUrl = (url) => url.endsWith('/') ? url : `${url}/`;
+const normalizeCorsOrigin = (value) => {
+    const trimmed = value.trim();
+    if (!trimmed)
+        return null;
+    // Browser Origin headers are scheme + host + optional port (no path, no trailing slash)
+    // Normalize config values so copied URLs like "https://host/" or "https://host/some/path"
+    // still match the Origin header.
+    try {
+        return new URL(trimmed).origin;
+    }
+    catch {
+        return trimmed.replace(/\/+$/, '');
+    }
+};
 const parseCorsOrigins = (value) => value
     .split(',')
-    .map(origin => origin.trim())
-    .filter(Boolean);
+    .map(normalizeCorsOrigin)
+    .filter((v) => typeof v === 'string' && v.length > 0);
 const configSchema = z.object({
     BC_ODATA_BASE_URL: z.string().url().transform(normalizeUrl).optional(),
     BC_COMPANY: z.string(),

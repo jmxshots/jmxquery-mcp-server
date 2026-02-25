@@ -15,6 +15,13 @@ interface Tool {
   };
 }
 
+const normalizeBaseUrl = (rawUrl: string) => {
+  const trimmed = rawUrl.trim();
+  // Avoid breaking partial scheme input like "https://"
+  if (trimmed === 'http://' || trimmed === 'https://') return trimmed;
+  return trimmed.replace(/\/+$/, '');
+};
+
 export default function App() {
   const [status, setStatus] = useState<'connected' | 'disconnected' | 'connecting'>('disconnected');
   const [mcpServerUrl, setMcpServerUrl] = useState(() => localStorage.getItem('mcp_server_url') || 'http://127.0.0.1:4000');
@@ -124,8 +131,16 @@ export default function App() {
   }, [output]);
 
   const getMessageUrl = useCallback(() => {
-    if (endpointUrl) return `${mcpServerUrl}${endpointUrl}`;
-    return `${mcpServerUrl}/mcp/messages`;
+    const baseUrl = normalizeBaseUrl(mcpServerUrl);
+
+    if (endpointUrl) {
+      // If the server ever sends an absolute URL, use it as-is.
+      if (/^https?:\/\//i.test(endpointUrl)) return endpointUrl;
+      const path = endpointUrl.startsWith('/') ? endpointUrl : `/${endpointUrl}`;
+      return `${baseUrl}${path}`;
+    }
+
+    return `${baseUrl}/mcp/messages`;
   }, [endpointUrl, mcpServerUrl]);
 
   const addLog = (msg: string) => {
@@ -161,7 +176,8 @@ export default function App() {
       headers['Authorization'] = `Bearer ${apiKey.trim()}`;
     }
 
-    void fetchEventSource(`${mcpServerUrl}/mcp/sse`, {
+    const baseUrl = normalizeBaseUrl(mcpServerUrl);
+    void fetchEventSource(`${baseUrl}/mcp/sse`, {
       method: 'GET',
       headers,
       signal: controller.signal,

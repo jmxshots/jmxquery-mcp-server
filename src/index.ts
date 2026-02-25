@@ -46,16 +46,28 @@ const toSafeEventMessage = (value: unknown, maxLen = 400) => {
 const fastify = Fastify({
     logger: false,
     connectionTimeout: 0,
+    // Helps when reverse proxies (or clients) accidentally create URLs like "//mcp/messages".
+    ignoreDuplicateSlashes: true,
+    ignoreTrailingSlash: true,
 });
 
 const allowedCorsOrigins = new Set(config.resolvedCorsOrigins);
+
+const normalizeOriginHeader = (origin: string) => {
+    try {
+        return new URL(origin).origin;
+    } catch {
+        return origin.replace(/\/+$/, '');
+    }
+};
 
 const isCorsOriginAllowed = (origin?: string) => {
     // Requests without Origin (CLI/server-to-server) are allowed.
     if (!origin) {
         return true;
     }
-    return allowedCorsOrigins.has(origin);
+
+    return allowedCorsOrigins.has(normalizeOriginHeader(origin));
 };
 
 const corsOriginHandler = (origin: string | undefined, callback: (error: Error | null, allow: boolean) => void) => {
@@ -229,7 +241,14 @@ streamableTransport.onerror = (error) => {
 
 // Determine which Fastify instance hosts the Streamable HTTP routes
 const streamablePort = config.MCP_STREAMABLE_PORT;
-const streamableFastify = streamablePort ? Fastify({ logger: false, connectionTimeout: 0 }) : fastify;
+const streamableFastify = streamablePort
+    ? Fastify({
+        logger: false,
+        connectionTimeout: 0,
+        ignoreDuplicateSlashes: true,
+        ignoreTrailingSlash: true,
+    })
+    : fastify;
 
 if (streamablePort) {
     // Separate server needs its own CORS and timeout config
