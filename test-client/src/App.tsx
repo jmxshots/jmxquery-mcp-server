@@ -209,7 +209,14 @@ export default function App() {
             setExtractedText(contentText || null);
             setActiveTab(contentText ? 'value' : 'raw');
 
-            addLog('✅ [TOOL RESULT] received.');
+            if (data.result.isError) {
+              addLog('❌ [TOOL RESULT] Error received.');
+              setLastResult(rawText);
+              setExtractedText(null);
+              setActiveTab('raw');
+            } else {
+              addLog('✅ [TOOL RESULT] received.');
+            }
           } else if (data.error) {
             addLog('\n❌ [TOOL ERROR]:\n' + JSON.stringify(data.error, null, 2));
             setLastResult(JSON.stringify(data.error, null, 2));
