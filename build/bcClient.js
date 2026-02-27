@@ -202,13 +202,12 @@ export class BcClient {
                 message = message.split('#< CLIXML').pop() || message;
             }
             // 3. Try to extract JSON error from CLIXML string tags <S S="Error">...</S>
-            // Note: We use a more specific regex for the JSON block
-            const jsonMatch = message.match(/({(?:\s|[^}]*)"error"(?:\s|[^}]*)})/);
+            // Improved: First strip all CLIXML tags to avoid fragments breaking the JSON structure
+            const cleanedMessage = message.replace(/<[^>]+>/g, '').trim();
+            const jsonMatch = cleanedMessage.match(/({(?:\s|[^}]*)"error"(?:\s|[^}]*)})/);
             if (jsonMatch) {
                 try {
-                    // Final cleanup before parsing to ensure valid JSON
-                    const jsonStr = jsonMatch[0].trim();
-                    const parsed = JSON.parse(jsonStr);
+                    const parsed = JSON.parse(jsonMatch[0]);
                     if (parsed.error?.message) {
                         message = parsed.error.message;
                         if (parsed.error.code) {
@@ -225,8 +224,8 @@ export class BcClient {
                 }
             }
             else {
-                // 4. Fallback: Strip CLIXML tags if JSON extraction failed
-                message = message.replace(/<[^>]+>/g, '').trim();
+                // 4. Fallback: Use the cleaned message if JSON extraction failed
+                message = cleanedMessage;
             }
             if (message.includes('Authentication_InvalidCredentials') || message.includes('401')) {
                 message += '\n\nHINT: If the server is running as a Windows Service, ensure the service is configured to "Log On" as a domain user with Business Central access. The default LocalSystem account cannot use SSO.';
