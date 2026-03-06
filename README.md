@@ -11,8 +11,22 @@ This is a Model Context Protocol (MCP) server that exposes JMX-QUERY functions f
 - **JMX-QUERY Tools**:
   - `jmxq_ping`
   - `jmxq_getGrammar`, `jmxq_getExamples`, `jmxq_getReadmeApi`
-  - `jmxq_listExecutionContexts`, `jmxq_describeExecutionContext`, `jmxq_describeTableFields`
+  - `jmxq_listExecutionContexts`, `jmxq_describeExecutionContext`, `jmxq_describeTableFields`, `jmxq_searchTables`
   - `jmxq_executeScript` (Executes scripts and returns formatted results)
+
+### Example: Search Tables
+
+Example MCP tool call for searching tables in a specific execution context:
+
+```json
+{
+  "name": "jmxq_searchTables",
+  "arguments": {
+    "executionContextCode": "DEFAULT",
+    "searchPattern": "*cust*"
+  }
+}
+```
 
 ## Installation (Clean Windows)
 

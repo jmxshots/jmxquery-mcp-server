@@ -24,7 +24,7 @@ const normalizeBaseUrl = (rawUrl: string) => {
 
 export default function App() {
   const [status, setStatus] = useState<'connected' | 'disconnected' | 'connecting'>('disconnected');
-  const [mcpServerUrl, setMcpServerUrl] = useState(() => localStorage.getItem('mcp_server_url') || 'http://127.0.0.1:4000');
+  const [mcpServerUrl, setMcpServerUrl] = useState(() => localStorage.getItem('mcp_server_url') || 'http://127.0.0.1:5500');
   const [tools, setTools] = useState<Tool[]>([]);
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
   const [argumentsJson, setArgumentsJson] = useState('{}');

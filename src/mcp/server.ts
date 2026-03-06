@@ -125,6 +125,18 @@ export function createMcpServer() {
                     },
                 },
                 {
+                    name: 'jmxq_searchTables',
+                    description: 'Searches tables within an execution context by a search pattern, e.g. *cust*.',
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            executionContextCode: { type: 'string', description: 'Context code' },
+                            searchPattern: { type: 'string', description: 'Table search pattern with wildcards, e.g. *cust*' },
+                        },
+                        required: ['searchPattern'],
+                    },
+                },
+                {
                     name: 'jmxq_executeScript',
                     description: 'Executes a single or multi-part JMX-QUERY script.',
                     inputSchema: {
@@ -171,6 +183,12 @@ export function createMcpServer() {
                     result = await bcClient.callAction('JMXQ_ApiInfoService', 'DescribeTableFields', {
                         executionContextCode: ctx,
                         tableRef: args?.tableRef
+                    });
+                    break;
+                case 'jmxq_searchTables':
+                    result = await bcClient.callAction('JMXQ_ApiInfoService', 'SearchTables', {
+                        executionContextCode: ctx,
+                        searchPattern: args?.searchPattern
                     });
                     break;
                 case 'jmxq_executeScript':
