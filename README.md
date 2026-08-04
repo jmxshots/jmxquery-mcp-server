@@ -63,6 +63,16 @@ For SSO, the Windows account running the service must be an authorized Business 
    npm start
    ```
 
+  If a prior local server process is still listening on `MCP_PORT` or
+  `MCP_STREAMABLE_PORT`, stop those listeners before starting with:
+
+  ```powershell
+  npm start -- --force-ports
+  ```
+
+  This Windows-only option forcefully terminates every process listening on
+  the configured ports.
+
 6. Open `http://127.0.0.1:5000/admin`, enter the Admin API key, and create your first Instance and Company.
 
 ## Service Configuration
@@ -161,7 +171,7 @@ Use **Get examples** to retrieve the JMX-QUERY examples published by the selecte
 
 ### Logs
 
-The **Logs** view supports filters for Instance, Company, Tool, Status, Request ID, and time range. It displays counts, error totals, and average durations. Use **Refresh** to retrieve new records.
+The **Logs** view supports filters for Instance, Company, Tool, Status, Request ID, and time range. It displays counts, error totals, and average durations. Use **Refresh** to retrieve new records. **Clear logs** permanently removes stored daily log files while retaining the selected period, or removes all log files when **Delete all logs** is selected. This manual cleanup does not change `LOG_RETENTION_DAYS`.
 
 Live browser events are intentionally not enabled because native browser `EventSource` cannot securely send the Admin bearer header. The server-side authenticated SSE endpoint remains available for a future client with an appropriate authenticated transport.
 

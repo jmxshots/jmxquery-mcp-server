@@ -161,6 +161,19 @@ export class LogService {
         };
     }
 
+    async clear(retentionDays?: number): Promise<{ deletedFiles: number }> {
+        let deletedFiles = 0;
+        const clear = async () => {
+            const cutoffDate = retentionDays === undefined
+                ? undefined
+                : this.getCutoffDate(new Date().toISOString(), retentionDays);
+            deletedFiles = await this.removeLogFiles(cutoffDate);
+        };
+        this.writeQueue = this.writeQueue.catch(() => undefined).then(clear);
+        await this.writeQueue;
+        return { deletedFiles };
+    }
+
     private async readRecords(query: Omit<LogQuery, 'limit'>): Promise<LogRecord[]> {
         await this.writeQueue;
         let fileNames: string[];
@@ -201,15 +214,29 @@ export class LogService {
     }
 
     private async removeExpiredFiles(timestamp: string): Promise<void> {
+        await this.removeLogFiles(this.getCutoffDate(timestamp, this.retentionDays));
+    }
+
+    private getCutoffDate(timestamp: string, retentionDays: number): string {
         const cutoff = new Date(timestamp);
-        cutoff.setUTCDate(cutoff.getUTCDate() - this.retentionDays);
-        const cutoffDate = cutoff.toISOString().slice(0, 10);
-        const fileNames = await readdir(this.logDirectory);
-        await Promise.all(fileNames.map(async fileName => {
+        cutoff.setUTCDate(cutoff.getUTCDate() - retentionDays);
+        return cutoff.toISOString().slice(0, 10);
+    }
+
+    private async removeLogFiles(cutoffDate?: string): Promise<number> {
+        let fileNames: string[];
+        try {
+            fileNames = await readdir(this.logDirectory);
+        } catch (error: any) {
+            if (error?.code === 'ENOENT') return 0;
+            throw error;
+        }
+
+        const filesToDelete = fileNames.filter(fileName => {
             const match = LOG_FILE_PATTERN.exec(fileName);
-            if (match && match[1] < cutoffDate) {
-                await unlink(path.join(this.logDirectory, fileName));
-            }
-        }));
+            return !!match && (cutoffDate === undefined || match[1] < cutoffDate);
+        });
+        await Promise.all(filesToDelete.map(fileName => unlink(path.join(this.logDirectory, fileName))));
+        return filesToDelete.length;
     }
 }

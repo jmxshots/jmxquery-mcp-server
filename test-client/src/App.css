@@ -23,6 +23,9 @@
   display: flex;
   align-items: center;
 }
+.button-row {
+  gap: 10px;
+}
 .product-mark {
   gap: 9px;
   font-family: inherit;

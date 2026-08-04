@@ -2074,6 +2074,11 @@ function LogsView({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<LogRecord | null>(null);
+  const [showClearDialog, setShowClearDialog] = useState(false);
+  const [clearRetentionDays, setClearRetentionDays] = useState("30");
+  const [clearError, setClearError] = useState("");
+  const [clearing, setClearing] = useState(false);
+  const [clearMessage, setClearMessage] = useState("");
   const load = async () => {
     setLoading(true);
     setError("");
@@ -2102,6 +2107,31 @@ function LogsView({
   useEffect(() => {
     loadInitialLogs();
   }, []);
+  const clearLogs = async () => {
+    setClearing(true);
+    setClearError("");
+    try {
+      const retentionQuery = clearRetentionDays
+        ? `?retentionDays=${clearRetentionDays}`
+        : "";
+      const result = await request<{ deletedFiles: number }>(
+        `/logs${retentionQuery}`,
+        { method: "DELETE" },
+      );
+      setSelected(null);
+      setShowClearDialog(false);
+      setClearMessage(
+        `${result.deletedFiles} log ${result.deletedFiles === 1 ? "file" : "files"} deleted.`,
+      );
+      await load();
+    } catch (caught) {
+      setClearError(
+        caught instanceof Error ? caught.message : "Unable to clear logs.",
+      );
+    } finally {
+      setClearing(false);
+    }
+  };
   return (
     <div className="view-layout">
       <header className="view-header">
@@ -2109,25 +2139,41 @@ function LogsView({
           <p className="eyebrow">Operations</p>
           <h1>Logs</h1>
         </div>
-        <button
-          className="primary-button"
-          type="button"
-          title="Refresh log records and metrics using the selected filters"
-          onClick={() => void load()}
-          disabled={loading}
-        >
-          <RefreshCw
-            size={17}
-            className={loading ? "spinning" : ""}
-            aria-hidden="true"
-          />
-          Refresh
-        </button>
+        <div className="button-row">
+          <button
+            className="secondary-button"
+            type="button"
+            title="Clear stored audit logs using a selected retention period"
+            onClick={() => {
+              setClearError("");
+              setShowClearDialog(true);
+            }}
+            disabled={loading || clearing}
+          >
+            <Trash2 size={17} aria-hidden="true" />
+            Clear logs
+          </button>
+          <button
+            className="primary-button"
+            type="button"
+            title="Refresh log records and metrics using the selected filters"
+            onClick={() => void load()}
+            disabled={loading || clearing}
+          >
+            <RefreshCw
+              size={17}
+              className={loading ? "spinning" : ""}
+              aria-hidden="true"
+            />
+            Refresh
+          </button>
+        </div>
       </header>
       <p className="notice">
         Live updates are not enabled because browser EventSource cannot send the
         Admin API bearer header. Use Refresh to retrieve current records.
       </p>
+      {clearMessage && <p className="notice" role="status">{clearMessage}</p>}
       {error && (
         <p className="form-error" role="alert">
           {error}
@@ -2316,6 +2362,53 @@ function LogsView({
               onClick={() => setSelected(null)}
             >
               Close
+            </button>
+          </div>
+        </Modal>
+      )}
+      {showClearDialog && (
+        <Modal
+          title="Clear logs"
+          onClose={() => !clearing && setShowClearDialog(false)}
+        >
+          <p>
+            This permanently deletes stored audit log files outside the selected retention period.
+          </p>
+          <label>
+            Retention
+            <select
+              value={clearRetentionDays}
+              title="Choose how much audit log history to keep"
+              onChange={(event) => setClearRetentionDays(event.target.value)}
+              disabled={clearing}
+            >
+              <option value="">Delete all logs</option>
+              <option value="1">Keep the last day</option>
+              <option value="7">Keep the last 7 days</option>
+              <option value="30">Keep the last 30 days</option>
+              <option value="90">Keep the last 90 days</option>
+            </select>
+          </label>
+          {clearError && <p className="form-error" role="alert">{clearError}</p>}
+          <div className="modal-actions">
+            <button
+              className="secondary-button"
+              type="button"
+              title="Cancel log cleanup"
+              onClick={() => setShowClearDialog(false)}
+              disabled={clearing}
+            >
+              Cancel
+            </button>
+            <button
+              className="primary-button"
+              type="button"
+              title="Permanently delete the selected audit logs"
+              onClick={() => void clearLogs()}
+              disabled={clearing}
+            >
+              <Trash2 size={17} aria-hidden="true" />
+              {clearing ? "Clearing" : "Clear logs"}
             </button>
           </div>
         </Modal>

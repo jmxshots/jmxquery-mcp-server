@@ -545,6 +545,17 @@ if (config.ADMIN_API_ENABLED) {
         return logService.getMetrics({ ...filters, status: status as 'success' | 'error' | undefined });
     });
 
+    fastify.delete('/admin/api/logs', async (request, reply) => {
+        const { retentionDays } = request.query as Record<string, string | undefined>;
+        const parsedRetentionDays = retentionDays === undefined ? undefined : Number(retentionDays);
+        if (parsedRetentionDays !== undefined
+            && (!Number.isInteger(parsedRetentionDays) || parsedRetentionDays < 0 || parsedRetentionDays > 3650)) {
+            return reply.code(400).send({ error: 'Invalid request.' });
+        }
+        reply.header('cache-control', 'no-store');
+        return logService.clear(parsedRetentionDays);
+    });
+
     fastify.get('/admin/api/logs/events', async (_request, reply) => {
         reply.hijack();
         const response = reply.raw;

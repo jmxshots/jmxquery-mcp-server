@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc && npm --prefix test-client run build",
-    "start": "node build/index.js",
+    "start": "node scripts/start.js",
     "dev": "tsx watch src/index.ts",
     "service:install": "node scripts/install-service.js",
     "service:uninstall": "node scripts/uninstall-service.js",
