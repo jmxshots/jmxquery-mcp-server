@@ -1,21 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import { pino } from 'pino';
-import { config } from '../config.js';
+import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { BcClientFactory } from '../instances/clientFactory.js';
+import type { PublicInstance } from '../instances/model.js';
 import { LogService } from '../logging/logService.js';
+import { logMcpActivity } from './activity.js';
 
-const logger = pino({
-    level: config.LOG_LEVEL,
-});
-
-export interface ToolDefinition {
-    name: string;
-    description: string;
-    inputSchema: Record<string, unknown>;
-}
+export type ToolDefinition = Tool;
 
 export interface ToolExecutionResult {
     content: Array<{ type: 'text'; text: string }>;
+    structuredContent?: Record<string, unknown>;
     isError?: true;
     requestId: string;
     durationMs: number;
@@ -23,11 +17,11 @@ export interface ToolExecutionResult {
 }
 
 const instanceSelectionProperties = {
-    bcInstance: { type: 'string', description: 'Configured Business Central instance name.' },
-    bcCompany: { type: 'string', description: 'Configured company name within the Business Central instance.' },
+    bcInstance: { type: 'string', description: 'Exact enabledTargets[].bcInstance value returned by jmxq_listInstances.' },
+    bcCompany: { type: 'string', description: 'Exact enabledTargets[].bcCompany value returned by jmxq_listInstances.' },
 };
 
-const createBcToolInputSchema = (properties: Record<string, unknown> = {}, required: string[] = []) => ({
+const createBcToolInputSchema = (properties: Record<string, object> = {}, required: string[] = []): Tool['inputSchema'] => ({
     type: 'object',
     properties: {
         ...instanceSelectionProperties,
@@ -36,36 +30,81 @@ const createBcToolInputSchema = (properties: Record<string, unknown> = {}, requi
     required: ['bcInstance', 'bcCompany', ...required],
 });
 
+const readOnlyAnnotations = {
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+};
+
+const instanceListOutputSchema: NonNullable<Tool['outputSchema']> = {
+    type: 'object',
+    properties: {
+        instances: {
+            type: 'array',
+            description: 'All configured public instances, including disabled instances and companies.',
+            items: { type: 'object', additionalProperties: true },
+        },
+        enabledTargets: {
+            type: 'array',
+            description: 'Enabled Business Central target pairs that may be passed to subsequent tools.',
+            items: {
+                type: 'object',
+                properties: {
+                    bcInstance: { type: 'string' },
+                    bcCompany: { type: 'string' },
+                    executionContextCode: { type: 'string' },
+                },
+                required: ['bcInstance', 'bcCompany', 'executionContextCode'],
+                additionalProperties: false,
+            },
+        },
+        targetCount: { type: 'integer', minimum: 0 },
+        selectionRequired: {
+            type: 'boolean',
+            description: 'True when multiple enabled targets exist and the user must choose one.',
+        },
+    },
+    required: ['instances', 'enabledTargets', 'targetCount', 'selectionRequired'],
+};
+
 export const toolDefinitions: ToolDefinition[] = [
     {
         name: 'jmxq_ping',
         description: 'A simple connectivity test that returns "pong".',
         inputSchema: { type: 'object', properties: {} },
+        annotations: { ...readOnlyAnnotations, openWorldHint: false },
     },
     {
         name: 'jmxq_listInstances',
-        description: 'Lists configured Business Central instances and companies available to this server.',
+        description: 'Call this before the first Business Central action. Returns all configured instances plus enabledTargets containing the exact bcInstance and bcCompany values for subsequent tools. Use the sole enabled target automatically; when multiple enabled targets exist, ask the user which one to use.',
         inputSchema: { type: 'object', properties: {} },
+        outputSchema: instanceListOutputSchema,
+        annotations: readOnlyAnnotations,
     },
     {
         name: 'jmxq_getGrammar',
-        description: 'Returns the JMX-QUERY grammar (EBNF).',
+        description: 'Returns the JMX-QUERY grammar (EBNF) for the selected target. Use it before composing unfamiliar or complex scripts.',
         inputSchema: createBcToolInputSchema(),
+        annotations: readOnlyAnnotations,
     },
     {
         name: 'jmxq_getExamples',
-        description: 'Returns JMX-QUERY script examples.',
+        description: 'Returns JMX-QUERY script examples for the selected target. Use examples to verify syntax before executing a script.',
         inputSchema: createBcToolInputSchema(),
+        annotations: readOnlyAnnotations,
     },
     {
         name: 'jmxq_getReadmeApi',
         description: 'Returns the API-oriented README for JMX-QUERY.',
         inputSchema: createBcToolInputSchema(),
+        annotations: readOnlyAnnotations,
     },
     {
         name: 'jmxq_listExecutionContexts',
-        description: 'Lists all available execution contexts.',
+        description: 'Lists execution contexts available to the selected target. Omit executionContextCode in later calls to use the selected Company default.',
         inputSchema: createBcToolInputSchema(),
+        annotations: readOnlyAnnotations,
     },
     {
         name: 'jmxq_describeExecutionContext',
@@ -73,32 +112,60 @@ export const toolDefinitions: ToolDefinition[] = [
         inputSchema: createBcToolInputSchema({
             executionContextCode: { type: 'string', description: 'Optional context code. Defaults to the selected Company execution context.' },
         }),
+        annotations: readOnlyAnnotations,
     },
     {
         name: 'jmxq_describeTableFields',
-        description: 'Describes fields and primary key of a specific table.',
+        description: 'Describes fields and the primary key of a table. For unknown table names, call jmxq_searchTables first and use its exact table reference.',
         inputSchema: createBcToolInputSchema({
             executionContextCode: { type: 'string', description: 'Optional context code. Defaults to the selected Company execution context.' },
             tableRef: { type: 'string', description: 'Table name or #ID (e.g. Customer, #18)' },
         }, ['tableRef']),
+        annotations: readOnlyAnnotations,
     },
     {
         name: 'jmxq_searchTables',
-        description: 'Searches tables within an execution context by a search pattern, e.g. *cust*.',
+        description: 'Searches tables within an execution context. Use this before jmxq_describeTableFields when the correct Business Central table name or ID is unknown.',
         inputSchema: createBcToolInputSchema({
             executionContextCode: { type: 'string', description: 'Optional context code. Defaults to the selected Company execution context.' },
             searchPattern: { type: 'string', description: 'Table search pattern with wildcards, e.g. *cust*' },
         }, ['searchPattern']),
+        annotations: readOnlyAnnotations,
     },
     {
         name: 'jmxq_executeScript',
-        description: 'Executes a single or multi-part JMX-QUERY script.',
+        description: 'Executes a single or multi-part JMX-QUERY script against the selected target. Scripts may contain read operations or mutating INSERT, MODIFY, DELETE, and RUN CODEUNIT operations. Clearly communicate mutation risk when applicable.',
         inputSchema: createBcToolInputSchema({
             executionContextCode: { type: 'string', description: 'Optional context code. Defaults to the selected Company execution context.' },
             script: { type: 'string', description: 'The JMX-QUERY script to execute' },
         }, ['script']),
+        annotations: {
+            readOnlyHint: false,
+            destructiveHint: true,
+            idempotentHint: false,
+            openWorldHint: true,
+        },
     },
 ];
+
+export function createInstanceSelection(instances: PublicInstance[]): Record<string, unknown> {
+    const enabledTargets = instances
+        .filter(instance => instance.enabled)
+        .flatMap(instance => instance.companies
+            .filter(company => company.enabled)
+            .map(company => ({
+                bcInstance: instance.name,
+                bcCompany: company.name,
+                executionContextCode: company.executionContextCode,
+            })));
+
+    return {
+        instances,
+        enabledTargets,
+        targetCount: enabledTargets.length,
+        selectionRequired: enabledTargets.length > 1,
+    };
+}
 
 const bcToolNames = new Set(toolDefinitions.slice(2).map(tool => tool.name));
 
@@ -154,23 +221,31 @@ export async function executeTool(
     const isBcTool = isBusinessCentralTool(name);
     let target: ReturnType<BcClientFactory['resolve']> | undefined;
     let executionContextCode: string | undefined;
-
-    logger.info({ tool: name, requestId }, 'Tool Call Received');
+    let structuredContent: Record<string, unknown> | undefined;
 
     try {
         const getRequiredString = (argumentName: string): string => {
             const value = args[argumentName];
             if (typeof value !== 'string' || !value.trim()) {
-                throw new Error(`'${argumentName}' is required.`);
+                throw new Error(`'${argumentName}' is required. Call jmxq_listInstances and use the exact bcInstance and bcCompany values from structuredContent.enabledTargets.`);
             }
             return value;
         };
-        target = isBcTool
-            ? clientFactory.resolve(getRequiredString('bcInstance'), getRequiredString('bcCompany'))
-            : undefined;
+        if (isBcTool) {
+            const bcInstance = getRequiredString('bcInstance');
+            const bcCompany = getRequiredString('bcCompany');
+            try {
+                target = clientFactory.resolve(bcInstance, bcCompany);
+            } catch (error: any) {
+                throw new Error(`${error.message} Call jmxq_listInstances and use an enabled target exactly as returned in structuredContent.enabledTargets.`);
+            }
+        }
         executionContextCode = typeof args.executionContextCode === 'string' && args.executionContextCode.trim()
             ? args.executionContextCode
             : target?.company.executionContextCode;
+        const activityTarget = target ? `${target.instance.name} / ${target.company.name}` : undefined;
+        const activityPrefix = activityTarget ? `${name} | ${activityTarget}` : name;
+        logMcpActivity(`${activityPrefix} | started`);
         const callBcAction = async (serviceName: string, actionName: string, payload: Record<string, unknown>) => {
             if (!target) throw new Error('A Business Central instance and company must be selected.');
             return target.client.callAction(serviceName, actionName, target.company.company, payload);
@@ -181,9 +256,12 @@ export async function executeTool(
             case 'jmxq_ping':
                 result = { status: 'ok', message: 'pong', timestamp: new Date().toISOString() };
                 break;
-            case 'jmxq_listInstances':
-                result = clientFactory.listInstances();
+            case 'jmxq_listInstances': {
+                const instances = clientFactory.listInstances();
+                result = instances;
+                structuredContent = createInstanceSelection(instances);
                 break;
+            }
             case 'jmxq_getGrammar':
                 result = await callBcAction('JMXQ_ApiInfoService', 'GetGrammar', {});
                 break;
@@ -229,13 +307,15 @@ export async function executeTool(
                     script: name === 'jmxq_executeScript' && typeof args.script === 'string' ? args.script : undefined,
                 });
             } catch {
-                logger.error({ tool: name, requestId }, 'Tool log write failed');
+                logMcpActivity(`${activityPrefix} | audit log unavailable`);
             }
         }
-        logger.info({ tool: name, requestId, resultLength: resultText.length, durationMs }, 'Tool Call Success');
-        return { content: [{ type: 'text', text: resultText }], requestId, durationMs, executionContextCode };
+        logMcpActivity(`${activityPrefix} | completed in ${durationMs} ms`);
+        return { content: [{ type: 'text', text: resultText }], structuredContent, requestId, durationMs, executionContextCode };
     } catch (error: any) {
         const durationMs = Date.now() - startedAt;
+        const activityTarget = target ? `${target.instance.name} / ${target.company.name}` : undefined;
+        const activityPrefix = activityTarget ? `${name} | ${activityTarget}` : name;
         if (isBcTool) {
             try {
                 await logService.record({
@@ -253,10 +333,10 @@ export async function executeTool(
                     script: name === 'jmxq_executeScript' && typeof args.script === 'string' ? args.script : undefined,
                 });
             } catch {
-                logger.error({ tool: name, requestId }, 'Tool failure log write failed');
+                logMcpActivity(`${activityPrefix} | audit log unavailable`);
             }
         }
-        logger.error({ tool: name, requestId, errorType: error?.name || 'Error' }, 'Tool Call Failed');
+        logMcpActivity(`${activityPrefix} | failed after ${durationMs} ms`);
         return {
             content: [{ type: 'text', text: `Error: ${error.message}` }],
             isError: true,

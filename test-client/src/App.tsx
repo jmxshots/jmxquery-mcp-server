@@ -77,6 +77,11 @@ interface Metrics {
   error: number;
   averageDurationMs: number;
 }
+interface LogFilterOptions {
+  instances: string[];
+  companies: Array<{ instanceName: string; companyName: string }>;
+  tools: string[];
+}
 interface ToolDefinition {
   name: string;
   description: string;
@@ -220,6 +225,29 @@ const instanceToForm = (instance: Instance): InstanceFormData => ({
   clientSecret: "",
   environment: instance.environment || "Production",
 });
+const emptyLogFilterOptions = (): LogFilterOptions => ({
+  instances: [],
+  companies: [],
+  tools: [],
+});
+const isInternationalDate = (value: string) => {
+  const match = /^(\d{4})\/(\d{2})\/(\d{2})$/.exec(value);
+  if (!match) return false;
+  const [, year, month, day] = match;
+  const date = new Date(`${year}-${month}-${day}T00:00:00.000Z`);
+  return (
+    date.getUTCFullYear() === Number(year) &&
+    date.getUTCMonth() + 1 === Number(month) &&
+    date.getUTCDate() === Number(day)
+  );
+};
+const toLogTimestamp = (value: string, endOfDay = false) =>
+  `${value.replaceAll("/", "-")}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}Z`;
+const formatLogTimestamp = (timestamp: string) => {
+  const date = new Date(timestamp);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getUTCFullYear()}/${pad(date.getUTCMonth() + 1)}/${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())} UTC`;
+};
 
 function App() {
   const [theme, setTheme] = useState<Theme>(initialTheme);
@@ -2070,6 +2098,9 @@ function LogsView({
     to: "",
   });
   const [logs, setLogs] = useState<LogRecord[]>([]);
+  const [filterOptions, setFilterOptions] = useState<LogFilterOptions>(
+    emptyLogFilterOptions,
+  );
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -2079,12 +2110,23 @@ function LogsView({
   const [clearError, setClearError] = useState("");
   const [clearing, setClearing] = useState(false);
   const [clearMessage, setClearMessage] = useState("");
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
+      if (
+        (filters.from && !isInternationalDate(filters.from)) ||
+        (filters.to && !isInternationalDate(filters.to))
+      ) {
+        throw new Error("Enter dates in yyyy/mm/dd format.");
+      }
+      const queryValues = {
+        ...filters,
+        from: filters.from ? toLogTimestamp(filters.from) : "",
+        to: filters.to ? toLogTimestamp(filters.to, true) : "",
+      };
       const query = new URLSearchParams(
-        Object.entries(filters).filter(([, value]) => value),
+        Object.entries(queryValues).filter(([, value]) => value),
       );
       const suffix = query.toString() ? `?${query}` : "";
       const [records, summary] = await Promise.all([
@@ -2092,6 +2134,41 @@ function LogsView({
         request<Metrics>(`/logs/metrics${suffix}`),
       ]);
       setLogs(records);
+      setFilterOptions((previous) => ({
+        instances: Array.from(
+          new Set([
+            ...previous.instances,
+            ...records.flatMap((record) =>
+              record.instanceName ? [record.instanceName] : [],
+            ),
+          ]),
+        ).sort(),
+        companies: Array.from(
+          new Map(
+            [
+              ...previous.companies,
+              ...records.flatMap((record) =>
+                record.instanceName && record.companyName
+                  ? [
+                      {
+                        instanceName: record.instanceName,
+                        companyName: record.companyName,
+                      },
+                    ]
+                  : [],
+              ),
+            ].map((company) => [
+              `${company.instanceName}\u0000${company.companyName}`,
+              company,
+            ]),
+          ).values(),
+        ).sort((left, right) =>
+          left.companyName.localeCompare(right.companyName),
+        ),
+        tools: Array.from(
+          new Set([...previous.tools, ...records.map((record) => record.tool)]),
+        ).sort(),
+      }));
       setMetrics(summary);
     } catch (caught) {
       setError(
@@ -2100,13 +2177,20 @@ function LogsView({
     } finally {
       setLoading(false);
     }
-  };
-  const loadInitialLogs = useEffectEvent(() => {
-    void load();
-  });
+  }, [filters, request]);
   useEffect(() => {
-    loadInitialLogs();
-  }, []);
+    if (
+      (filters.from && !isInternationalDate(filters.from)) ||
+      (filters.to && !isInternationalDate(filters.to))
+    ) {
+      return;
+    }
+    void load();
+  }, [filters.from, filters.to, load]);
+  const companyOptions = filterOptions.companies.filter(
+    (company) =>
+      !filters.instanceName || company.instanceName === filters.instanceName,
+  );
   const clearLogs = async () => {
     setClearing(true);
     setClearError("");
@@ -2170,8 +2254,8 @@ function LogsView({
         </div>
       </header>
       <p className="notice">
-        Live updates are not enabled because browser EventSource cannot send the
-        Admin API bearer header. Use Refresh to retrieve current records.
+        Filters update the displayed records automatically. Use Refresh to retrieve
+        new records from the server.
       </p>
       {clearMessage && <p className="notice" role="status">{clearMessage}</p>}
       {error && (
@@ -2196,33 +2280,58 @@ function LogsView({
         </label>
         <label>
           Instance
-          <input
+          <select
             value={filters.instanceName}
             title="Filter records by Instance name"
-            onChange={(event) =>
-              setFilters({ ...filters, instanceName: event.target.value })
-            }
-          />
+            onChange={(event) => {
+              const instanceName = event.target.value;
+              setFilters({ ...filters, instanceName, companyName: "" });
+            }}
+          >
+            <option value="">All</option>
+            {filterOptions.instances.map((instanceName) => (
+              <option key={instanceName} value={instanceName}>
+                {instanceName}
+              </option>
+            ))}
+          </select>
         </label>
         <label>
           Company
-          <input
+          <select
             value={filters.companyName}
             title="Filter records by Company name"
             onChange={(event) =>
               setFilters({ ...filters, companyName: event.target.value })
             }
-          />
+          >
+            <option value="">All</option>
+            {companyOptions.map((company) => (
+              <option
+                key={`${company.instanceName}-${company.companyName}`}
+                value={company.companyName}
+              >
+                {company.companyName}
+              </option>
+            ))}
+          </select>
         </label>
         <label>
           Tool
-          <input
+          <select
             value={filters.tool}
             title="Filter records by MCP tool name"
             onChange={(event) =>
               setFilters({ ...filters, tool: event.target.value })
             }
-          />
+          >
+            <option value="">All</option>
+            {filterOptions.tools.map((tool) => (
+              <option key={tool} value={tool}>
+                {tool}
+              </option>
+            ))}
+          </select>
         </label>
         <label>
           Request ID
@@ -2237,15 +2346,16 @@ function LogsView({
         <label>
           From
           <input
-            type="datetime-local"
+            type="text"
             value={filters.from}
-            title="Show records created on or after this local date and time"
+            title="Show records created on or after this UTC date"
+            placeholder="yyyy/mm/dd"
+            inputMode="numeric"
+            pattern="\d{4}/\d{2}/\d{2}"
             onChange={(event) =>
               setFilters({
                 ...filters,
-                from: event.target.value
-                  ? new Date(event.target.value).toISOString()
-                  : "",
+                from: event.target.value,
               })
             }
           />
@@ -2253,15 +2363,16 @@ function LogsView({
         <label>
           To
           <input
-            type="datetime-local"
+            type="text"
             value={filters.to}
-            title="Show records created on or before this local date and time"
+            title="Show records created on or before this UTC date"
+            placeholder="yyyy/mm/dd"
+            inputMode="numeric"
+            pattern="\d{4}/\d{2}/\d{2}"
             onChange={(event) =>
               setFilters({
                 ...filters,
-                to: event.target.value
-                  ? new Date(event.target.value).toISOString()
-                  : "",
+                to: event.target.value,
               })
             }
           />
@@ -2307,7 +2418,7 @@ function LogsView({
           <tbody>
             {logs.map((record) => (
               <tr key={`${record.requestId}-${record.timestamp}`}>
-                <td>{new Date(record.timestamp).toLocaleString()}</td>
+                <td>{formatLogTimestamp(record.timestamp)}</td>
                 <td>
                   <span className={`status-pill ${record.status}`}>
                     {record.status}

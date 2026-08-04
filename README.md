@@ -222,7 +222,7 @@ Use `http://127.0.0.1:5001/mcp/stream` when `MCP_STREAMABLE_PORT=5001` is config
 
 ### Agent Workflow
 
-The first Business Central action should identify an explicit target:
+The server returns workflow instructions during MCP initialization. The first Business Central action must identify an explicit target:
 
 ```json
 {
@@ -231,7 +231,25 @@ The first Business Central action should identify an explicit target:
 }
 ```
 
-The response contains enabled Instance and Company names. Every Business Central tool then requires both values:
+The response keeps the complete instance list in text content for compatibility and also returns structured content with this selection shape:
+
+```json
+{
+  "enabledTargets": [
+    {
+      "bcInstance": "Production",
+      "bcCompany": "Northwind",
+      "executionContextCode": "DEFAULT"
+    }
+  ],
+  "targetCount": 1,
+  "selectionRequired": false
+}
+```
+
+Disabled Instances and Companies are never included in `enabledTargets`. If exactly one target is enabled, use it automatically. If multiple targets are enabled, ask the user which target to use. If none are enabled, tell the user that the server needs an enabled Instance and Company.
+
+Every Business Central tool requires the exact `bcInstance` and `bcCompany` values from `enabledTargets`:
 
 ```json
 {
@@ -258,7 +276,9 @@ The response contains enabled Instance and Company names. Every Business Central
 }
 ```
 
-Do not ask agents to retain an active Instance or Company between tool calls. Explicit targets prevent cross-request routing mistakes.
+For unknown tables, call `jmxq_searchTables` followed by `jmxq_describeTableFields`. Use `jmxq_getGrammar` or `jmxq_getExamples` before composing unfamiliar or complex scripts.
+
+Do not ask agents to retain an active Instance or Company between tool calls. Explicit targets prevent cross-request routing mistakes. `jmxq_executeScript` may run `INSERT`, `MODIFY`, `DELETE`, or `RUN CODEUNIT`; tool metadata therefore marks it as potentially destructive rather than read-only.
 
 ## Diagnostics
 

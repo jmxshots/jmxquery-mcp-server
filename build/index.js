@@ -14,6 +14,7 @@ import { WindowsEventLogger } from './utils/eventLogger.js';
 import { BcClientFactory } from './instances/clientFactory.js';
 import { EncryptedInstanceRegistry } from './instances/registry.js';
 import { LogService } from './logging/logService.js';
+import { configureMcpActivityLogger, logMcpActivity, runWithMcpActivity } from './mcp/activity.js';
 import { executeTool, isRegisteredTool, toolDefinitions } from './mcp/tools.js';
 if (config.ADMIN_API_ENABLED && !config.ADMIN_API_KEY?.trim()) {
     throw new Error('ADMIN_API_KEY must be configured when ADMIN_API_ENABLED is true.');
@@ -27,10 +28,12 @@ const logger = pino({
             colorize: true,
             ignore: 'pid,hostname',
             translateTime: 'HH:MM:ss Z',
+            singleLine: true,
             destination: 2, // 2 is stderr
         },
     },
 });
+configureMcpActivityLogger(logger);
 const instanceRegistry = new EncryptedInstanceRegistry(config.INSTANCE_STORE_PATH, config.INSTANCE_MASTER_KEY);
 await instanceRegistry.load();
 const bcClientFactory = new BcClientFactory(instanceRegistry);
@@ -57,8 +60,10 @@ const fastify = Fastify({
     logger: false,
     connectionTimeout: 0,
     // Helps when reverse proxies (or clients) accidentally create URLs like "//mcp/messages".
-    ignoreDuplicateSlashes: true,
-    ignoreTrailingSlash: true,
+    routerOptions: {
+        ignoreDuplicateSlashes: true,
+        ignoreTrailingSlash: true,
+    },
 });
 const allowedCorsOrigins = new Set(config.resolvedCorsOrigins);
 const normalizeOriginHeader = (origin) => {
@@ -557,10 +562,48 @@ fastify.get('/admin/*', async (request, reply) => {
     }
     return reply.sendFile('index.html');
 });
-// --- SSE Transport (for HTTP/Web Clients) ---
 const activeTransports = new Map();
+const toMcpClientLabel = (value, fallback) => {
+    if (typeof value !== 'string' || !value.trim()) {
+        return fallback;
+    }
+    return value.replace(/[\r\n\t]+/g, ' ').trim().slice(0, 80);
+};
+const getMcpRequestMethod = (request) => {
+    const method = request.body?.method;
+    return typeof method === 'string' ? method : undefined;
+};
+const getMcpClientContext = (request, fallback) => {
+    const clientInfo = request.body?.params?.clientInfo;
+    if (clientInfo && typeof clientInfo.name === 'string') {
+        const version = typeof clientInfo.version === 'string' ? ` ${clientInfo.version}` : '';
+        return { client: toMcpClientLabel(`${clientInfo.name}${version}`, 'MCP client') };
+    }
+    const clientId = request.headers['x-mcp-clientid'] ?? request.headers['x-mcp-client-id'];
+    if (typeof clientId === 'string' && clientId.trim()) {
+        return { client: toMcpClientLabel(clientId, 'MCP client') };
+    }
+    const userAgent = request.headers['user-agent'];
+    if (typeof userAgent === 'string' && /vscode/i.test(userAgent)) {
+        return { client: 'VS Code' };
+    }
+    if (typeof userAgent === 'string' && /copilot/i.test(userAgent)) {
+        return { client: 'GitHub Copilot' };
+    }
+    if (typeof userAgent === 'string' && /inspector/i.test(userAgent)) {
+        return { client: 'MCP Inspector' };
+    }
+    return fallback || { client: toMcpClientLabel(userAgent, request.ip || 'MCP client') };
+};
+const logMcpProtocolActivity = (method) => {
+    if (method === 'initialize') {
+        logMcpActivity('connected');
+    }
+    else if (method === 'tools/list') {
+        logMcpActivity('requested tool catalog');
+    }
+};
 fastify.get('/mcp/sse', async (request, reply) => {
-    logger.info('New SSE Connection attempt');
     if (!isValidApiKey(request)) {
         logger.warn('Unauthorized SSE Connection attempt');
         reply.code(401)
@@ -580,16 +623,16 @@ fastify.get('/mcp/sse', async (request, reply) => {
         // Authentication must be provided via Authorization: Bearer <key> header.
         const transport = new SSEServerTransport('/mcp/messages', res);
         const sessionId = transport.sessionId;
-        activeTransports.set(sessionId, transport);
-        logger.info({ sessionId }, 'New SSE Transport created');
+        const context = getMcpClientContext(request);
+        activeTransports.set(sessionId, { transport, context });
+        runWithMcpActivity(context, () => logMcpActivity('SSE connection opened'));
         request.raw.on('close', () => {
-            logger.info({ sessionId }, 'SSE Connection Closed');
+            runWithMcpActivity(context, () => logMcpActivity('SSE connection closed'));
             activeTransports.delete(sessionId);
         });
         // Each SSE session gets its own MCP server instance
         const sessionMcpServer = createMcpServer(bcClientFactory, logService);
         await sessionMcpServer.connect(transport);
-        logger.info({ sessionId }, 'MCP Server SSE session connected');
     }
     catch (error) {
         logger.error({ error }, 'Error in SSE connection handler');
@@ -613,16 +656,21 @@ fastify.post('/mcp/messages', async (request, reply) => {
         return;
     }
     const sessionId = request.query?.sessionId;
-    const transport = sessionId ? activeTransports.get(sessionId) : null;
-    if (!transport) {
+    const activeTransport = sessionId ? activeTransports.get(sessionId) : null;
+    if (!activeTransport) {
         logger.warn({ sessionId }, 'POST /mcp/messages: No active transport found for session');
         reply.code(400).send({ error: 'SERVER_NO_ACTIVE_TRANSPORT', sessionId });
         return;
     }
     try {
         const message = request.body;
+        const context = getMcpClientContext(request, activeTransport.context);
+        activeTransport.context = context;
         // Use the SDK's handleMessage for better robustness
-        await transport.handleMessage(message);
+        await runWithMcpActivity(context, async () => {
+            logMcpProtocolActivity(getMcpRequestMethod(request));
+            await activeTransport.transport.handleMessage(message);
+        });
         reply.code(202).send('Accepted');
     }
     catch (error) {
@@ -634,12 +682,8 @@ fastify.post('/mcp/messages', async (request, reply) => {
 });
 // --- Streamable HTTP Transport (New Protocol) ---
 const streamableTransport = new StreamableHTTPServerTransport();
-streamableTransport.onmessage = (message) => {
-    const method = message.method || 'notification/response';
-    logger.info({ method }, 'Streamable HTTP transport received message');
-};
 streamableTransport.onerror = (error) => {
-    logger.error({ error }, 'Streamable HTTP transport error');
+    logger.error('MCP stream transport error');
 };
 // Determine which Fastify instance hosts the Streamable HTTP routes
 const streamablePort = config.MCP_STREAMABLE_PORT;
@@ -647,8 +691,10 @@ const streamableFastify = streamablePort
     ? Fastify({
         logger: false,
         connectionTimeout: 0,
-        ignoreDuplicateSlashes: true,
-        ignoreTrailingSlash: true,
+        routerOptions: {
+            ignoreDuplicateSlashes: true,
+            ignoreTrailingSlash: true,
+        },
     })
     : fastify;
 if (streamablePort) {
@@ -672,9 +718,7 @@ if (streamablePort) {
         streamableFastify.server.requestTimeout = 0;
     });
 }
-// Handle all methods for the streaming endpoint
-streamableFastify.all('/mcp/stream', async (request, reply) => {
-    logger.info({ method: request.method, url: request.url }, 'Streamable HTTP request received');
+const handleStreamableRequest = async (request, reply) => {
     if (!isValidApiKey(request)) {
         logger.warn('Unauthorized Streamable HTTP attempt');
         reply.code(401).send({ error: 'Unauthorized', message: 'Invalid or missing API Key' });
@@ -683,12 +727,16 @@ streamableFastify.all('/mcp/stream', async (request, reply) => {
     try {
         // We MUST hijack the reply for the transport to work correctly with streaming
         reply.hijack();
+        const context = getMcpClientContext(request);
         // Pass the body if it was already parsed by Fastify (for POST requests)
         // For GET requests, request.body will be undefined which is correct.
-        await streamableTransport.handleRequest(request.raw, reply.raw, request.body);
+        await runWithMcpActivity(context, async () => {
+            logMcpProtocolActivity(getMcpRequestMethod(request));
+            await streamableTransport.handleRequest(request.raw, reply.raw, request.body);
+        });
     }
     catch (error) {
-        logger.error({ error }, 'Error in Streamable HTTP handler');
+        logger.error('MCP stream request failed');
         if (reply.raw && !reply.raw.writableEnded) {
             if (!reply.raw.headersSent) {
                 reply.raw.writeHead(500, { 'Content-Type': 'application/json' });
@@ -696,16 +744,11 @@ streamableFastify.all('/mcp/stream', async (request, reply) => {
             reply.raw.end(JSON.stringify({ error: `STREAMABLE_ERROR: ${error.message}` }));
         }
     }
-});
+};
+// Handle all methods for the streaming endpoint
+streamableFastify.all('/mcp/stream', handleStreamableRequest);
 // Also support sub-paths (if needed)
-streamableFastify.all('/mcp/stream/*', async (request, reply) => {
-    if (!isValidApiKey(request)) {
-        reply.code(401).send({ error: 'Unauthorized', message: 'Invalid or missing API Key' });
-        return;
-    }
-    reply.hijack();
-    await streamableTransport.handleRequest(request.raw, reply.raw, request.body);
-});
+streamableFastify.all('/mcp/stream/*', handleStreamableRequest);
 // --- Stdio Transport (for AI Agents like Claude Desktop/Cline) ---
 const startStdio = async () => {
     // Check if we are in a TTY. If not, we probably want Stdio support.
@@ -715,7 +758,7 @@ const startStdio = async () => {
         const stdioMcpServer = createMcpServer(bcClientFactory, logService);
         const stdioTransport = new StdioServerTransport();
         await stdioMcpServer.connect(stdioTransport);
-        logger.info('MCP Server Stdio transport connected');
+        logger.info('MCP Stdio transport ready');
     }
     catch (err) {
         logger.error({ err }, 'Failed to start Stdio transport');
@@ -729,35 +772,27 @@ const start = async () => {
         // Connect Streamable transport with its own MCP server instance
         const streamableMcpServer = createMcpServer(bcClientFactory, logService);
         await streamableMcpServer.connect(streamableTransport);
-        logger.info('MCP Server Streamable transport connected');
+        logger.info('MCP Streamable HTTP transport ready');
         // Start HTTP server for SSE (and Streamable HTTP if no separate port)
         await fastify.listen({ port: config.MCP_PORT, host: config.MCP_HOST });
-        logger.info(`JMX-QUERY MCP Server running at http://${config.MCP_HOST}:${config.MCP_PORT}`);
-        logger.info(`SSE Endpoint: http://${config.MCP_HOST}:${config.MCP_PORT}/mcp/sse`);
+        logger.info(`HTTP listener ready | http://${config.MCP_HOST}:${config.MCP_PORT}`);
+        logger.info(`SSE endpoint | http://${config.MCP_HOST}:${config.MCP_PORT}/mcp/sse`);
         if (config.ADMIN_API_ENABLED) {
-            logger.info(`Admin GUI Endpoint: http://${config.MCP_HOST}:${config.MCP_PORT}/admin`);
-            logger.info(`Admin API Endpoint: http://${config.MCP_HOST}:${config.MCP_PORT}/admin/api`);
+            logger.info(`Admin GUI | http://${config.MCP_HOST}:${config.MCP_PORT}/admin`);
+            logger.info(`Admin API | http://${config.MCP_HOST}:${config.MCP_PORT}/admin/api`);
         }
         // Start separate Streamable HTTP server if configured
         if (streamablePort) {
             await streamableFastify.listen({ port: streamablePort, host: config.MCP_HOST });
-            logger.info(`Streamable HTTP Endpoint: http://${config.MCP_HOST}:${streamablePort}/mcp/stream`);
-        }
-        else {
-            logger.info(`Streamable HTTP Endpoint: http://${config.MCP_HOST}:${config.MCP_PORT}/mcp/stream`);
         }
         WindowsEventLogger.info('JMX-QUERY MCP Server started successfully');
         const isAuthActive = !!config.MCP_API_KEY;
-        if (isAuthActive) {
-            logger.info('*** SECURITY: API Key Authentication is ENABLED ***');
+        const streamableEndpoint = `http://${config.MCP_HOST}:${streamablePort || config.MCP_PORT}/mcp/stream`;
+        logger.info(`Streamable HTTP endpoint | ${streamableEndpoint}`);
+        logger.info(`API key authentication ${isAuthActive ? 'enabled' : 'disabled'}`);
+        if (!isAuthActive) {
+            logger.warn('MCP access is unsecured');
         }
-        else {
-            logger.warn('*** SECURITY: API Key Authentication is DISABLED (Unsecured) ***');
-        }
-        logger.info({
-            securityActive: isAuthActive,
-            keyLength: config.MCP_API_KEY?.length || 0
-        }, 'Authentication status');
     }
     catch (err) {
         logger.error(err);
@@ -771,9 +806,9 @@ const shutdown = async (signal) => {
     logger.info({ signal }, 'Received shutdown signal, closing server...');
     try {
         // Close all active SSE transports
-        for (const [sessionId, transport] of activeTransports.entries()) {
+        for (const [sessionId, activeTransport] of activeTransports.entries()) {
             try {
-                await transport.close();
+                await activeTransport.transport.close();
                 logger.info({ sessionId }, 'SSE Transport closed');
             }
             catch (err) {

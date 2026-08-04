@@ -312,7 +312,7 @@ export class BcClient {
             }
 
             const duration = Date.now() - startTime;
-            logger.info({ service: serviceName, action: actionName, statusCode, duration, requestId }, 'BC API Call Completed');
+            logger.debug({ service: serviceName, action: actionName, statusCode, duration, requestId }, 'BC API Call Completed');
 
             if (statusCode >= 400) {
                 const safePreview = toSafeLogPreview(responseBody);
