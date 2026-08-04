@@ -95,6 +95,64 @@ export class BcClient {
         }
     }
 
+    async testConnection(): Promise<void> {
+        const requestId = crypto.randomUUID();
+        let statusCode = 200;
+
+        try {
+            if (this.instance.authType === 'SSO') {
+                this.testViaPowerShell(this.baseUrl, requestId);
+            } else if (this.instance.authType === 'NTLM') {
+                const ntlmClient = new (NtlmClient as any)(
+                    this.instance.username,
+                    this.instance.password,
+                    '',
+                    '',
+                );
+                const response = await this.withTimeout('BC NTLM connection test', async () =>
+                    await (ntlmClient as any).request({
+                        url: this.baseUrl,
+                        method: 'GET',
+                        headers: {
+                            'Accept': 'application/json',
+                            'X-Request-ID': requestId,
+                        },
+                    }),
+                );
+                statusCode = response.statusCode;
+            } else {
+                const headers: Record<string, string> = {
+                    'Accept': 'application/json',
+                    'X-Request-ID': requestId,
+                };
+                if (this.instance.authType === 'OAUTH') {
+                    headers.Authorization = `Bearer ${await getOAuthToken(this.instance)}`;
+                } else {
+                    const credentials = Buffer.from(`${this.instance.username}:${this.instance.password}`).toString('base64');
+                    headers.Authorization = `Basic ${credentials}`;
+                }
+                const response = await this.requestTextWithTimeout(this.baseUrl, {
+                    method: 'GET',
+                    headers,
+                });
+                statusCode = response.statusCode;
+            }
+
+            if (statusCode >= 400) {
+                throw new Error(`Business Central connection test failed with HTTP ${statusCode}.`);
+            }
+
+            logger.info({ authType: this.instance.authType, requestId, statusCode }, 'BC connection test completed');
+        } catch (error: any) {
+            logger.error({
+                requestId,
+                errorName: error?.name,
+            }, 'BC connection test failed');
+            const detail = error instanceof Error ? error.message : 'Unknown connection error.';
+            throw new Error(`Business Central connection test failed: ${detail}`);
+        }
+    }
+
     async callAction<T = any>(serviceName: string, actionName: string, company: string, payload: Record<string, any>): Promise<T> {
         const url = new URL(`${serviceName}_${actionName}`, this.baseUrl);
         url.searchParams.append('company', company);
@@ -213,7 +271,7 @@ export class BcClient {
                 "X-Request-ID" = "${requestId}" 
             };
             $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes('${jsonPayload.replace(/'/g, "''")}');
-            $response = Invoke-RestMethod -Uri "${url}" -Method Post -Body $bodyBytes -ContentType "application/json; charset=utf-8" -UseDefaultCredentials -Headers $headers;
+            $response = Invoke-RestMethod -Uri "${url}" -Method Post -Body $bodyBytes -ContentType "application/json; charset=utf-8" -UseDefaultCredentials -UseBasicParsing -Headers $headers;
             if ($null -eq $response) { return "" }
             $response | ConvertTo-Json -Depth 10 -Compress;
         `.trim();
@@ -280,6 +338,27 @@ export class BcClient {
             const clientErrorMsg = `BC SSO Error [requestId=${requestId}]: ${message}`;
             WindowsEventLogger.error(eventLogMsg);
             throw new Error(clientErrorMsg);
+        }
+    }
+
+    private testViaPowerShell(url: string, requestId: string): void {
+        const escapedUrl = url.replace(/'/g, "''");
+        const psScript = `
+            $ProgressPreference = 'SilentlyContinue';
+            $headers = @{ "Accept" = "application/json"; "X-Request-ID" = "${requestId}" };
+            $response = Invoke-WebRequest -Uri '${escapedUrl}' -Method Get -UseDefaultCredentials -UseBasicParsing -Headers $headers -ErrorAction Stop;
+            if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 400) { throw "HTTP $($response.StatusCode)" }
+        `.trim();
+        const base64Script = Buffer.from(psScript, 'utf16le').toString('base64');
+
+        try {
+            execSync(`powershell -NoProfile -NonInteractive -EncodedCommand ${base64Script}`, {
+                encoding: 'utf-8',
+                timeout: this.timeoutMs,
+                maxBuffer: 1024 * 1024,
+            });
+        } catch (error: any) {
+            throw new Error('Business Central SSO connection test failed.');
         }
     }
 }

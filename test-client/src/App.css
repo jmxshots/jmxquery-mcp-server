@@ -25,7 +25,7 @@
 }
 .product-mark {
   gap: 9px;
-  font-family: Georgia, serif;
+  font-family: inherit;
   font-size: 20px;
   font-weight: 700;
   padding: 0 9px;
@@ -107,7 +107,7 @@ h1,
 h2,
 h3 {
   color: #173a42;
-  font-family: Georgia, serif;
+  font-family: inherit;
 }
 h1 {
   font-size: clamp(28px, 4vw, 40px);
@@ -152,6 +152,9 @@ h3 {
 }
 .secondary-button:hover {
   border-color: #234d53;
+}
+.instance-toggle {
+  margin-left: 8px;
 }
 .icon-button {
   background: transparent;
@@ -247,6 +250,20 @@ h3 {
   background: #e9e7e2;
   color: #5e655f;
 }
+.status-icon {
+  align-items: center;
+  display: inline-flex;
+  height: 16px;
+  justify-content: center;
+  vertical-align: middle;
+  width: 16px;
+}
+.status-icon.success {
+  color: #17613e;
+}
+.status-icon.disabled {
+  color: #5e655f;
+}
 .definition-grid {
   display: grid;
   gap: 10px 22px;
@@ -316,6 +333,30 @@ td {
 }
 .form-grid .wide {
   grid-column: 1 / -1;
+}
+.field-label-with-action {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+.url-assist-button {
+  align-items: center;
+  background: #e9f0ec;
+  border: 1px solid #aabdb7;
+  border-radius: 4px;
+  color: #234d53;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  gap: 5px;
+  min-height: 27px;
+  padding: 3px 7px;
+}
+.url-assist-button:hover {
+  background: #dce9e2;
+  border-color: #56756d;
 }
 label {
   color: #375b59;
@@ -444,7 +485,8 @@ select:focus {
 .metric strong {
   color: #173a42;
   display: block;
-  font-family: Georgia, serif;
+  font-family: inherit;
+  font-weight: 750;
   font-size: 25px;
   margin-top: 3px;
 }
@@ -593,6 +635,189 @@ select:focus {
   width: 1px;
   clip: rect(0, 0, 0, 0);
 }
+
+.sidebar-theme-control {
+  padding: 0 8px;
+}
+.theme-toggle {
+  color: #c2d7d3;
+}
+.theme-toggle:hover {
+  background: #24525a;
+  border-color: #36636a;
+  color: #fff;
+}
+.login-heading .theme-toggle {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+:root[data-theme="dark"] .sidebar {
+  background: #102a31;
+  color: #e6f0ee;
+}
+:root[data-theme="dark"] .sidebar-footer {
+  border-top-color: #28515a;
+}
+:root[data-theme="dark"] .nav-button {
+  color: #b8d0cc;
+}
+:root[data-theme="dark"] .nav-button:hover,
+:root[data-theme="dark"] .nav-button.active,
+:root[data-theme="dark"] .theme-toggle:hover {
+  background: #1d444d;
+  border-color: #3e6e75;
+  color: #fff;
+}
+:root[data-theme="dark"] .workspace {
+  background: #111a20;
+}
+:root[data-theme="dark"] h1,
+:root[data-theme="dark"] h2,
+:root[data-theme="dark"] h3,
+:root[data-theme="dark"] .toc strong {
+  color: #e4efed;
+}
+:root[data-theme="dark"] .eyebrow,
+:root[data-theme="dark"] .definition-grid dt,
+:root[data-theme="dark"] .instance-row small,
+:root[data-theme="dark"] .subsection-heading p,
+:root[data-theme="dark"] .empty-state,
+:root[data-theme="dark"] .empty-detail,
+:root[data-theme="dark"] .login-heading p,
+:root[data-theme="dark"] .memory-note,
+:root[data-theme="dark"] .metric span {
+  color: #a8bfbc;
+}
+:root[data-theme="dark"] .list-panel,
+:root[data-theme="dark"] .detail-panel,
+:root[data-theme="dark"] .log-table-wrap,
+:root[data-theme="dark"] .markdown-content,
+:root[data-theme="dark"] .login-panel,
+:root[data-theme="dark"] .modal,
+:root[data-theme="dark"] .secondary-button {
+  background: #18252c;
+  border-color: #35484f;
+  color: #dce8e7;
+}
+:root[data-theme="dark"] .list-panel > .panel-heading,
+:root[data-theme="dark"] .subsection-heading,
+:root[data-theme="dark"] th,
+:root[data-theme="dark"] td,
+:root[data-theme="dark"] .instance-row,
+:root[data-theme="dark"] .toc {
+  border-color: #30434a;
+}
+:root[data-theme="dark"] .instance-row:hover,
+:root[data-theme="dark"] .instance-row.selected,
+:root[data-theme="dark"] .icon-button:hover {
+  background: #24373e;
+}
+:root[data-theme="dark"] .secondary-button:hover,
+:root[data-theme="dark"] .icon-button:hover {
+  border-color: #66858a;
+}
+:root[data-theme="dark"] .icon-button {
+  color: #bcd4d0;
+}
+:root[data-theme="dark"] .icon-button.danger {
+  color: #f29a91;
+}
+:root[data-theme="dark"] .icon-button.danger:hover {
+  background: #442b30;
+  border-color: #7a494c;
+}
+:root[data-theme="dark"] .edit-form,
+:root[data-theme="dark"] .company-form,
+:root[data-theme="dark"] .filter-bar {
+  background: #1d2c33;
+  border-color: #3a5056;
+}
+:root[data-theme="dark"] .url-assist-button {
+  background: #243b42;
+  border-color: #66858a;
+  color: #d8e7e4;
+}
+:root[data-theme="dark"] .url-assist-button:hover {
+  background: #2e4b53;
+  border-color: #8aadb0;
+}
+:root[data-theme="dark"] label {
+  color: #c7d9d6;
+}
+:root[data-theme="dark"] input,
+:root[data-theme="dark"] select {
+  background: #101b21;
+  border-color: #496167;
+  color: #e6f0ee;
+}
+:root[data-theme="dark"] input:focus,
+:root[data-theme="dark"] select:focus {
+  border-color: #e98b63;
+  outline-color: #573d34;
+}
+:root[data-theme="dark"] .status-pill.success {
+  background: #173f32;
+  color: #8fe0ae;
+}
+:root[data-theme="dark"] .status-pill.error,
+:root[data-theme="dark"] .form-error {
+  background: #48282c;
+  color: #ffb6af;
+}
+:root[data-theme="dark"] .form-error {
+  border-left-color: #d96a61;
+}
+:root[data-theme="dark"] .status-pill.disabled {
+  background: #343d42;
+  color: #c0c8c6;
+}
+:root[data-theme="dark"] .status-icon.success {
+  color: #8fe0ae;
+}
+:root[data-theme="dark"] .status-icon.disabled {
+  color: #c0c8c6;
+}
+:root[data-theme="dark"] .notice {
+  background: #193b39;
+  border-left-color: #58a99d;
+  color: #b7e5dd;
+}
+:root[data-theme="dark"] .metric {
+  background: #20353a;
+}
+:root[data-theme="dark"] .metric strong {
+  color: #e4efed;
+}
+:root[data-theme="dark"] .modal-backdrop {
+  background: rgb(4 11 14 / 0.72);
+}
+:root[data-theme="dark"] .modal p,
+:root[data-theme="dark"] .markdown-content {
+  color: #cedddb;
+}
+:root[data-theme="dark"] .toc a {
+  color: #a8cfca;
+}
+:root[data-theme="dark"] .toc a:hover,
+:root[data-theme="dark"] .markdown-content a {
+  color: #f1a77d;
+}
+:root[data-theme="dark"] .markdown-content code {
+  background: #273940;
+  color: #e2efec;
+}
+:root[data-theme="dark"] .markdown-content pre,
+:root[data-theme="dark"] .modal pre {
+  background: #0d171c;
+  color: #dce8e7;
+}
+:root[data-theme="dark"] .login-page {
+  background: linear-gradient(135deg, #102a31 0%, #111a20 52%, #3c2a25 100%);
+}
+:root[data-theme="dark"] .login-panel {
+  box-shadow: 12px 12px 0 #203d42;
+}
 @keyframes spin {
   to {
     transform: rotate(360deg);
@@ -674,12 +899,4 @@ select:focus {
   .detail-panel {
     padding: 16px;
   }
-}
-#root {
-  width: 100%;
-  height: 100%;
-}
-
-.logo {
-  height: 6em;
 }

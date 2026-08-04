@@ -11,16 +11,27 @@ export class BcClientFactory {
     }
     resolve(instanceName, companyName) {
         const target = this.registry.getTarget(instanceName, companyName);
-        const revision = target.instance.updatedAt;
-        const cached = this.clients.get(target.instance.id);
+        return {
+            client: this.getClient(target.instance),
+            instance: target.instance,
+            company: target.company,
+        };
+    }
+    resolveEnabledInstance(instanceName) {
+        const instance = this.registry.getEnabledInstance(instanceName);
+        return { client: this.getClient(instance), instance };
+    }
+    getClient(instance) {
+        const revision = instance.updatedAt;
+        const cached = this.clients.get(instance.id);
         if (!cached || cached.revision !== revision) {
             if (cached) {
-                invalidateOAuthToken(target.instance.id);
+                invalidateOAuthToken(instance.id);
             }
-            const client = new BcClient(target.instance);
-            this.clients.set(target.instance.id, { revision, client });
-            return { client, instance: target.instance, company: target.company };
+            const client = new BcClient(instance);
+            this.clients.set(instance.id, { revision, client });
+            return client;
         }
-        return { client: cached.client, instance: target.instance, company: target.company };
+        return cached.client;
     }
 }

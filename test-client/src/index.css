@@ -1,6 +1,21 @@
-:root { color: #183a3f; font-family: "Trebuchet MS", Verdana, sans-serif; font-synthesis: none; text-rendering: optimizeLegibility; }
+:root {
+	color: #183a3f;
+	color-scheme: light;
+	font-family: "Segoe UI Variable", "Aptos", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+	font-synthesis: none;
+	text-rendering: optimizeLegibility;
+	--focus-ring: #eab676;
+}
+
+:root[data-theme="dark"] {
+	color: #dce8e7;
+	color-scheme: dark;
+	--focus-ring: #f0b675;
+}
+
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; min-height: 100vh; }
+body { background: #f4f1e9; margin: 0; min-width: 320px; min-height: 100vh; }
+:root[data-theme="dark"] body { background: #111a20; }
 button, input, select { font: inherit; }
-button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 3px solid #eab676; outline-offset: 2px; }
+button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
 #root { min-height: 100vh; }

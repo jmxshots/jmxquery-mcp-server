@@ -85,6 +85,7 @@ const corsOriginHandler = (origin, callback) => {
 };
 await fastify.register(cors, {
     origin: corsOriginHandler,
+    credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'OPTIONS', 'DELETE'],
     allowedHeaders: [
         'Content-Type',
@@ -140,6 +141,56 @@ const hasValidAdminKey = (providedKey) => {
     }
     return timingSafeEqual(Buffer.from(providedKey), Buffer.from(configuredKey));
 };
+const ADMIN_SESSION_COOKIE = 'jmxquery_admin_session';
+const adminSessions = new Set();
+const getCookieValue = (request, name) => {
+    const cookieHeader = request.headers.cookie;
+    if (typeof cookieHeader !== 'string')
+        return undefined;
+    return cookieHeader
+        .split(';')
+        .map((entry) => entry.trim())
+        .find((entry) => entry.startsWith(`${name}=`))
+        ?.slice(name.length + 1);
+};
+const hasValidAdminSession = (request) => {
+    const sessionId = getCookieValue(request, ADMIN_SESSION_COOKIE);
+    if (!sessionId)
+        return false;
+    return adminSessions.has(sessionId);
+};
+const adminSessionCookie = (request) => {
+    const priorSessionId = getCookieValue(request, ADMIN_SESSION_COOKIE);
+    if (priorSessionId)
+        adminSessions.delete(priorSessionId);
+    const sessionId = randomUUID();
+    adminSessions.add(sessionId);
+    const attributes = [
+        `${ADMIN_SESSION_COOKIE}=${sessionId}`,
+        'HttpOnly',
+        'Path=/admin/api',
+        'SameSite=Strict',
+    ];
+    if (request.protocol === 'https')
+        attributes.push('Secure');
+    return attributes.join('; ');
+};
+const clearAdminSessionCookie = (request) => {
+    const sessionId = getCookieValue(request, ADMIN_SESSION_COOKIE);
+    if (sessionId)
+        adminSessions.delete(sessionId);
+    const attributes = [
+        `${ADMIN_SESSION_COOKIE}=`,
+        'HttpOnly',
+        'Path=/admin/api',
+        'SameSite=Strict',
+        'Max-Age=0',
+        'Expires=Thu, 01 Jan 1970 00:00:00 GMT',
+    ];
+    if (request.protocol === 'https')
+        attributes.push('Secure');
+    return attributes.join('; ');
+};
 const isValidAdminApiKey = (request) => {
     const authHeader = request.headers.authorization;
     const bearerToken = typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
@@ -147,6 +198,7 @@ const isValidAdminApiKey = (request) => {
         : undefined;
     return hasValidAdminKey(bearerToken);
 };
+const isValidAdminAuthentication = (request) => isValidAdminApiKey(request) || hasValidAdminSession(request);
 const sendAdminError = (reply, error) => {
     const message = error instanceof Error ? error.message : '';
     const statusCode = message.includes('was not found') ? 404 : 400;
@@ -154,11 +206,25 @@ const sendAdminError = (reply, error) => {
 };
 if (config.ADMIN_API_ENABLED) {
     fastify.addHook('onRequest', async (request, reply) => {
-        if (request.url.startsWith('/admin/api') && !isValidAdminApiKey(request)) {
+        if (request.url.startsWith('/admin/api') && !isValidAdminAuthentication(request)) {
             return reply.code(401).send({ error: 'Unauthorized.' });
         }
     });
     fastify.get('/', async (_request, reply) => reply.redirect('/admin'));
+    fastify.post('/admin/api/session', async (request, reply) => {
+        reply.header('set-cookie', adminSessionCookie(request));
+        reply.header('cache-control', 'no-store');
+        return { authenticated: true };
+    });
+    fastify.get('/admin/api/session', async (_request, reply) => {
+        reply.header('cache-control', 'no-store');
+        return { authenticated: true };
+    });
+    fastify.post('/admin/api/session/logout', async (request, reply) => {
+        reply.header('set-cookie', clearAdminSessionCookie(request));
+        reply.header('cache-control', 'no-store');
+        return reply.code(204).send();
+    });
     fastify.get('/admin/api/instances', async (_request, reply) => {
         reply.header('cache-control', 'no-store');
         return instanceRegistry.listPublicInstances();
@@ -200,6 +266,56 @@ if (config.ADMIN_API_ENABLED) {
         }
         catch (error) {
             return sendAdminError(reply, error);
+        }
+    });
+    fastify.post('/admin/api/instances/:instanceName/test-connection', async (request, reply) => {
+        const { instanceName } = request.params;
+        const requestId = randomUUID();
+        const startedAt = Date.now();
+        let target;
+        try {
+            target = bcClientFactory.resolveEnabledInstance(instanceName);
+            await target.client.testConnection();
+            try {
+                await logService.record({
+                    instanceId: target.instance.id,
+                    instanceName: target.instance.name,
+                    tool: 'admin_testInstanceConnection',
+                    status: 'success',
+                    durationMs: Date.now() - startedAt,
+                    requestId,
+                });
+            }
+            catch {
+                logger.error({ tool: 'admin_testInstanceConnection', requestId }, 'Admin instance connection test log write failed');
+            }
+            reply.header('cache-control', 'no-store');
+            return { status: 'ok', durationMs: Date.now() - startedAt };
+        }
+        catch (error) {
+            try {
+                await logService.record({
+                    instanceId: target?.instance.id,
+                    instanceName: target?.instance.name || instanceName,
+                    tool: 'admin_testInstanceConnection',
+                    status: 'error',
+                    durationMs: Date.now() - startedAt,
+                    requestId,
+                    errorType: error?.name || 'Error',
+                    errorMessage: error?.message || 'Connection test failed.',
+                });
+            }
+            catch {
+                logger.error({ tool: 'admin_testInstanceConnection', requestId }, 'Admin instance connection test failure log write failed');
+            }
+            logger.error({ tool: 'admin_testInstanceConnection', requestId, errorType: error?.name || 'Error' }, 'Admin instance connection test failed');
+            return reply.code(400).send({
+                error: 'Connection test failed.',
+                detail: error?.message || 'Unknown connection error.',
+                errorType: error?.name || 'Error',
+                durationMs: Date.now() - startedAt,
+                requestId,
+            });
         }
     });
     fastify.post('/admin/api/instances/:instanceName/companies', async (request, reply) => {
@@ -288,7 +404,13 @@ if (config.ADMIN_API_ENABLED) {
                 logger.error({ tool: 'admin_testConnection', requestId }, 'Admin connection test failure log write failed');
             }
             logger.error({ tool: 'admin_testConnection', requestId, errorType: error?.name || 'Error' }, 'Admin connection test failed');
-            return reply.code(400).send({ error: 'Invalid request.' });
+            return reply.code(400).send({
+                error: 'Connection test failed.',
+                detail: error?.message || 'Unknown connection error.',
+                errorType: error?.name || 'Error',
+                durationMs: Date.now() - startedAt,
+                requestId,
+            });
         }
     });
     fastify.post('/admin/api/instances/:instanceName/secrets/:field/reveal', async (request, reply) => {
@@ -567,6 +689,10 @@ const start = async () => {
         await fastify.listen({ port: config.MCP_PORT, host: config.MCP_HOST });
         logger.info(`JMX-QUERY MCP Server running at http://${config.MCP_HOST}:${config.MCP_PORT}`);
         logger.info(`SSE Endpoint: http://${config.MCP_HOST}:${config.MCP_PORT}/mcp/sse`);
+        if (config.ADMIN_API_ENABLED) {
+            logger.info(`Admin GUI Endpoint: http://${config.MCP_HOST}:${config.MCP_PORT}/admin`);
+            logger.info(`Admin API Endpoint: http://${config.MCP_HOST}:${config.MCP_PORT}/admin/api`);
+        }
         // Start separate Streamable HTTP server if configured
         if (streamablePort) {
             await streamableFastify.listen({ port: streamablePort, host: config.MCP_HOST });

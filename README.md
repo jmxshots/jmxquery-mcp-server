@@ -106,7 +106,7 @@ For SSO, open `services.msc`, select **JMX-QUERY MCP Server**, open **Properties
 
 ## Admin GUI
 
-Open `/admin` on the main service port. The login screen requests the service URL and Admin API key. Both values remain in React memory only; reloading the browser requires a new login.
+Open `/admin` on the main service port. The login screen requests the service URL and Admin API key. After a successful login, the browser receives a server-issued `HttpOnly` session cookie, so reloading the page keeps the Admin session until **Sign out**, the browser is closed, or the server restarts. The Admin API key is not stored in browser storage; **Sign out** revokes and clears the session.
 
 ### Instances
 
@@ -119,7 +119,18 @@ An Instance is a connection profile. Select **New instance**, give it a stable n
 | `SSO` | Base URL; the Windows service account authenticates |
 | `OAUTH` | Tenant ID, Client ID, Client Secret, Environment |
 
-For OAuth, the server derives the Business Central OData V4 base URL from the configured `tenantId` and `environment`.
+For `BASIC`, `NTLM`, and `SSO`, enter the full Business Central OData V4 service root. The trailing slash is recommended and added automatically when omitted.
+
+| Authentication | Base URL example |
+| --- | --- |
+| `BASIC` | `https://bc.example.com:7048/BC240/ODataV4/` |
+| `NTLM` | `http://bc-internal:7048/BC240/ODataV4/` |
+| `SSO` | `https://bc-internal.contoso.local:7049/Production/ODataV4/` |
+| `OAUTH` | No Base URL field. The server builds `https://api.businesscentral.dynamics.com/v2.0/<tenantId>/<environment>/ODataV4/`. |
+
+Replace the hostname, port, server instance, and environment values with the values from your Business Central deployment. Do not add a Company to the Base URL; configure each Company separately in the **Companies** section.
+
+For OAuth, use the Entra ID directory ID as `tenantId` and the Business Central Online environment name as `environment`, for example `Production` or `Sandbox`. The server derives the Business Central OData V4 base URL from those values.
 
 Use **Enable** or **Disable** to control whether an Instance can receive new MCP requests. Disabling an Instance also blocks every Company beneath it. Running requests are not aborted.
 

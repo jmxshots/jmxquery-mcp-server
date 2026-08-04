@@ -153,6 +153,14 @@ export class EncryptedInstanceRegistry {
         }
         return secret;
     }
+    getEnabledInstance(instanceName) {
+        this.assertLoaded();
+        const instance = this.getInstance(instanceName);
+        if (!instance.enabled) {
+            throw new Error(`Instance '${instanceName}' is disabled.`);
+        }
+        return instance;
+    }
     getTarget(instanceName, companyName) {
         this.assertLoaded();
         const instance = this.store.instances.find(candidate => candidate.name === instanceName);

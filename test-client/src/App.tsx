@@ -15,17 +15,21 @@ import {
   FileText,
   KeyRound,
   LogOut,
+  Moon,
   Pencil,
   Plus,
   RefreshCw,
   Server,
   ShieldCheck,
+  Sun,
   Trash2,
+  WandSparkles,
   X,
 } from "lucide-react";
 import "./App.css";
 
 type View = "instances" | "logs" | "documentation";
+type Theme = "light" | "dark";
 type AuthType = "BASIC" | "NTLM" | "SSO" | "OAUTH";
 type SecretField = "password" | "clientSecret";
 interface Company {
@@ -72,7 +76,6 @@ interface Metrics {
 }
 interface Session {
   serverUrl: string;
-  adminKey: string;
 }
 interface InstanceFormData {
   name: string;
@@ -93,6 +96,40 @@ interface CompanyFormData {
   company: string;
   executionContextCode: string;
   enabled: boolean;
+}
+interface ConnectionTestResponse {
+  status: "ok";
+  durationMs: number;
+  requestId?: string;
+}
+interface ConnectionTestDialog {
+  target: string;
+  succeeded: boolean;
+  durationMs?: number;
+  error?: string;
+  errorType?: string;
+  requestId?: string;
+}
+interface ApiErrorResponse {
+  error?: string;
+  detail?: string;
+  errorType?: string;
+  durationMs?: number;
+  requestId?: string;
+}
+class ApiRequestError extends Error {
+  readonly detail?: string;
+  readonly errorType?: string;
+  readonly durationMs?: number;
+  readonly requestId?: string;
+
+  constructor(message: string, response: ApiErrorResponse) {
+    super(message);
+    this.detail = response.detail;
+    this.errorType = response.errorType;
+    this.durationMs = response.durationMs;
+    this.requestId = response.requestId;
+  }
 }
 
 const emptyInstanceForm = (): InstanceFormData => ({
@@ -119,6 +156,33 @@ const defaultServerUrl = import.meta.env.DEV
   ? "http://127.0.0.1:5000"
   : window.location.origin;
 const normalizeServerUrl = (value: string) => value.trim().replace(/\/+$/, "");
+const themeStorageKey = "jmx-query-admin-theme";
+const adminServerUrlStorageKey = "jmx-query-admin-server-url";
+const initialServerUrl = () => {
+  try {
+    return window.localStorage.getItem(adminServerUrlStorageKey) || defaultServerUrl;
+  } catch {
+    return defaultServerUrl;
+  }
+};
+const initialTheme = (): Theme => {
+  try {
+    const storedTheme = window.localStorage.getItem(themeStorageKey);
+    if (storedTheme === "light" || storedTheme === "dark") return storedTheme;
+  } catch {
+    // Theme preference is optional when browser storage is unavailable.
+  }
+  return window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+};
+const baseUrlExamples: Record<Exclude<AuthType, "OAUTH">, string> = {
+  BASIC: "https://bc.example.com:7048/BC240/ODataV4/",
+  NTLM: "http://bc-internal:7048/BC240/ODataV4/",
+  SSO: "https://bc-internal.contoso.local:7049/Production/ODataV4/",
+};
+const getBaseUrlExample = (authType: AuthType) =>
+  authType === "OAUTH" ? "" : baseUrlExamples[authType];
 const instanceToForm = (instance: Instance): InstanceFormData => ({
   name: instance.name,
   description: instance.description,
@@ -135,36 +199,73 @@ const instanceToForm = (instance: Instance): InstanceFormData => ({
 });
 
 function App() {
+  const [theme, setTheme] = useState<Theme>(initialTheme);
   const [session, setSession] = useState<Session | null>(null);
   const [view, setView] = useState<View>("instances");
-  const [serverUrl, setServerUrl] = useState(defaultServerUrl);
+  const [serverUrl, setServerUrl] = useState(initialServerUrl);
   const [adminKey, setAdminKey] = useState("");
   const [loginError, setLoginError] = useState("");
   const [instances, setInstances] = useState<Instance[]>([]);
   const [loadingInstances, setLoadingInstances] = useState(false);
+  const [restoringSession, setRestoringSession] = useState(true);
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    try {
+      window.localStorage.setItem(themeStorageKey, theme);
+    } catch {
+      // Theme preference is optional when browser storage is unavailable.
+    }
+  }, [theme]);
+  useEffect(() => {
+    const candidateServerUrl = normalizeServerUrl(initialServerUrl());
+    const restoreSession = async () => {
+      try {
+        const response = await fetch(`${candidateServerUrl}/admin/api/session`, {
+          credentials: "include",
+        });
+        if (response.ok) {
+          setServerUrl(candidateServerUrl);
+          setSession({ serverUrl: candidateServerUrl });
+        }
+      } catch {
+        // A new login is required when the prior server is unreachable.
+      } finally {
+        setRestoringSession(false);
+      }
+    };
+    void restoreSession();
+  }, []);
   const request = useCallback(
     async <T,>(path: string, options: RequestInit = {}): Promise<T> => {
       if (!session) throw new Error("No active admin session.");
       const response = await fetch(`${session.serverUrl}/admin/api${path}`, {
         ...options,
+        credentials: "include",
         headers: {
-          Authorization: `Bearer ${session.adminKey}`,
           ...(options.body ? { "Content-Type": "application/json" } : {}),
           ...options.headers,
         },
       });
+      if (response.status === 401) {
+        setSession(null);
+      }
       if (!response.ok) {
         let message = `Request failed with HTTP ${response.status}.`;
+        let errorResponse: ApiErrorResponse = {};
         try {
-          const body = (await response.json()) as { error?: string };
-          if (body.error) message = body.error;
+          errorResponse = (await response.json()) as ApiErrorResponse;
+          if (errorResponse.error) message = errorResponse.error;
         } catch {
           /* preserve HTTP status */
         }
-        throw new Error(message);
+        throw new ApiRequestError(message, errorResponse);
       }
       if (response.status === 204) return undefined as T;
-      return response.json() as Promise<T>;
+      if (response.headers.get("content-type")?.includes("application/json")) {
+        return response.json() as Promise<T>;
+      }
+      return response.text() as Promise<T>;
     },
     [session],
   );
@@ -192,8 +293,12 @@ function App() {
     setLoginError("");
     try {
       const response = await fetch(
-        `${candidate.serverUrl}/admin/api/instances`,
-        { headers: { Authorization: `Bearer ${candidate.adminKey}` } },
+        `${candidate.serverUrl}/admin/api/session`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { Authorization: `Bearer ${candidate.adminKey}` },
+        },
       );
       if (!response.ok)
         throw new Error(
@@ -201,8 +306,16 @@ function App() {
             ? "The Admin API key was rejected."
             : `Server returned HTTP ${response.status}.`,
         );
-      setInstances((await response.json()) as Instance[]);
-      setSession(candidate);
+      try {
+        window.localStorage.setItem(
+          adminServerUrlStorageKey,
+          candidate.serverUrl,
+        );
+      } catch {
+        // Session restoration is optional when browser storage is unavailable.
+      }
+      setAdminKey("");
+      setSession({ serverUrl: candidate.serverUrl });
     } catch (error) {
       setLoginError(
         error instanceof Error
@@ -211,6 +324,24 @@ function App() {
       );
     }
   };
+  const signOut = async () => {
+    if (!session) return;
+    try {
+      const response = await fetch(
+        `${session.serverUrl}/admin/api/session/logout`,
+        { method: "POST", credentials: "include" },
+      );
+      if (!response.ok) throw new Error("Unable to sign out.");
+      setSession(null);
+      setInstances([]);
+      setAdminKey("");
+    } catch (error) {
+      setLoginError(
+        error instanceof Error ? error.message : "Unable to sign out.",
+      );
+    }
+  };
+  if (restoringSession) return null;
   if (!session)
     return (
       <LoginScreen
@@ -220,6 +351,8 @@ function App() {
         onServerUrl={setServerUrl}
         onAdminKey={setAdminKey}
         onSubmit={signIn}
+        theme={theme}
+        onThemeChange={() => setTheme(theme === "light" ? "dark" : "light")}
       />
     );
   return (
@@ -250,6 +383,12 @@ function App() {
             onClick={() => setView("documentation")}
           />
         </nav>
+        <div className="sidebar-theme-control">
+          <ThemeToggle
+            theme={theme}
+            onToggle={() => setTheme(theme === "light" ? "dark" : "light")}
+          />
+        </div>
         <div className="sidebar-footer">
           <span className="server-name" title={session.serverUrl}>
             {session.serverUrl}
@@ -259,11 +398,7 @@ function App() {
             type="button"
             title="Sign out"
             aria-label="Sign out"
-            onClick={() => {
-              setSession(null);
-              setAdminKey("");
-              setInstances([]);
-            }}
+            onClick={() => void signOut()}
           >
             <LogOut size={18} />
           </button>
@@ -292,6 +427,8 @@ function LoginScreen({
   onServerUrl,
   onAdminKey,
   onSubmit,
+  theme,
+  onThemeChange,
 }: {
   serverUrl: string;
   adminKey: string;
@@ -299,6 +436,8 @@ function LoginScreen({
   onServerUrl: (value: string) => void;
   onAdminKey: (value: string) => void;
   onSubmit: (event: FormEvent) => void;
+  theme: Theme;
+  onThemeChange: () => void;
 }) {
   return (
     <main className="login-page">
@@ -309,12 +448,14 @@ function LoginScreen({
             <h1>JMX Query Admin</h1>
             <p>Sign in to manage service instances.</p>
           </div>
+          <ThemeToggle theme={theme} onToggle={onThemeChange} />
         </div>
         <label>
           Server URL
           <input
             type="url"
             value={serverUrl}
+            title="URL of the JMX-QUERY MCP Server Admin API"
             onChange={(event) => onServerUrl(event.target.value)}
             placeholder="http://127.0.0.1:5000"
             autoComplete="url"
@@ -326,6 +467,7 @@ function LoginScreen({
           <input
             type="password"
             value={adminKey}
+            title="Admin API key configured in the server .env file"
             onChange={(event) => onAdminKey(event.target.value)}
             autoComplete="off"
             required
@@ -336,7 +478,11 @@ function LoginScreen({
             {error}
           </p>
         )}
-        <button className="primary-button" type="submit">
+        <button
+          className="primary-button"
+          type="submit"
+          title="Authenticate with the configured Admin API key"
+        >
           <KeyRound size={17} aria-hidden="true" />
           Sign in
         </button>
@@ -347,6 +493,30 @@ function LoginScreen({
     </main>
   );
 }
+
+function ThemeToggle({
+  theme,
+  onToggle,
+}: {
+  theme: Theme;
+  onToggle: () => void;
+}) {
+  const isDark = theme === "dark";
+  const label = isDark ? "Switch to light mode" : "Switch to dark mode";
+  return (
+    <button
+      className="icon-button theme-toggle"
+      type="button"
+      title={label}
+      aria-label={label}
+      aria-pressed={isDark}
+      onClick={onToggle}
+    >
+      {isDark ? <Sun size={18} /> : <Moon size={18} />}
+    </button>
+  );
+}
+
 function NavigationButton({
   active,
   icon,
@@ -362,6 +532,7 @@ function NavigationButton({
     <button
       type="button"
       className={`nav-button ${active ? "active" : ""}`}
+      title={`Open ${label}`}
       onClick={onClick}
     >
       {icon}
@@ -394,7 +565,8 @@ function InstancesView({
   >({});
   const [revealPrompt, setRevealPrompt] = useState<SecretField | null>(null);
   const [confirmKey, setConfirmKey] = useState("");
-  const [connectionMessage, setConnectionMessage] = useState("");
+  const [connectionTest, setConnectionTest] =
+    useState<ConnectionTestDialog | null>(null);
   const selected =
     instances.find((instance) => instance.name === selectedName) || null;
   useEffect(() => {
@@ -500,13 +672,55 @@ function InstancesView({
   };
   const testConnection = (instanceName: string, companyName: string) => {
     void perform(async () => {
-      const result = await request<{ status: "ok"; durationMs: number }>(
-        `/instances/${encodeURIComponent(instanceName)}/companies/${encodeURIComponent(companyName)}/test-connection`,
-        { method: "POST" },
-      );
-      setConnectionMessage(
-        `Connection to ${companyName} succeeded in ${result.durationMs} ms.`,
-      );
+      const target = `${instanceName} / ${companyName}`;
+      try {
+        const result = await request<ConnectionTestResponse>(
+          `/instances/${encodeURIComponent(instanceName)}/companies/${encodeURIComponent(companyName)}/test-connection`,
+          { method: "POST" },
+        );
+        setConnectionTest({
+          target,
+          succeeded: true,
+          durationMs: result.durationMs,
+          requestId: result.requestId,
+        });
+      } catch (caught) {
+        const error = caught instanceof ApiRequestError ? caught : undefined;
+        setConnectionTest({
+          target,
+          succeeded: false,
+          durationMs: error?.durationMs,
+          error: error?.detail || (caught instanceof Error ? caught.message : "Connection test failed."),
+          errorType: error?.errorType,
+          requestId: error?.requestId,
+        });
+      }
+    });
+  };
+  const testInstanceConnection = (instanceName: string) => {
+    void perform(async () => {
+      try {
+        const result = await request<ConnectionTestResponse>(
+          `/instances/${encodeURIComponent(instanceName)}/test-connection`,
+          { method: "POST" },
+        );
+        setConnectionTest({
+          target: instanceName,
+          succeeded: true,
+          durationMs: result.durationMs,
+          requestId: result.requestId,
+        });
+      } catch (caught) {
+        const error = caught instanceof ApiRequestError ? caught : undefined;
+        setConnectionTest({
+          target: instanceName,
+          succeeded: false,
+          durationMs: error?.durationMs,
+          error: error?.detail || (caught instanceof Error ? caught.message : "Connection test failed."),
+          errorType: error?.errorType,
+          requestId: error?.requestId,
+        });
+      }
     });
   };
   const revealSecret = () => {
@@ -544,6 +758,7 @@ function InstancesView({
         <button
           className="primary-button"
           type="button"
+          title="Create a new Business Central connection profile"
           onClick={() => {
             setSelectedName(null);
             setInstanceForm(emptyInstanceForm());
@@ -557,11 +772,6 @@ function InstancesView({
       {error && (
         <p className="form-error" role="alert">
           {error}
-        </p>
-      )}
-      {connectionMessage && (
-        <p className="notice" role="status">
-          {connectionMessage}
         </p>
       )}
       <div className="instances-grid">
@@ -586,6 +796,7 @@ function InstancesView({
               className={`instance-row ${selected?.name === instance.name ? "selected" : ""}`}
               type="button"
               key={instance.id}
+              title={`Select ${instance.name}`}
               onClick={() => {
                 setSelectedName(instance.name);
                 setInstanceForm(null);
@@ -675,7 +886,31 @@ function InstancesView({
               <button
                 className="secondary-button"
                 type="button"
+                disabled={busy || !selected.enabled}
+                title={selected.enabled
+                  ? "Test the configured OData service root and authentication without requiring a Company"
+                  : "Enable the instance before testing its connection"}
+                onClick={() => testInstanceConnection(selected.name)}
+              >
+                <RefreshCw
+                  size={16}
+                  className={busy ? "spinning" : ""}
+                  aria-hidden="true"
+                />
+                Test connection
+              </button>
+              <button
+                className="secondary-button instance-toggle"
+                type="button"
                 disabled={busy}
+                title={
+                  selected.enabled
+                    ? "Block new requests to this instance and all of its companies"
+                    : "Allow new requests to this instance and its enabled companies"
+                }
+                aria-label={
+                  selected.enabled ? "Disable instance" : "Enable instance"
+                }
                 onClick={() =>
                   void perform(async () => {
                     await request(
@@ -699,6 +934,7 @@ function InstancesView({
                 <button
                   className="secondary-button"
                   type="button"
+                  title="Add a Company target to this instance"
                   onClick={() => {
                     setCompanyForm(emptyCompanyForm());
                     setEditingCompany(null);
@@ -874,6 +1110,7 @@ function InstancesView({
             <input
               type="password"
               value={confirmKey}
+              title="Re-enter the Admin API key to reveal this stored secret"
               onChange={(event) => setConfirmKey(event.target.value)}
               autoComplete="off"
             />
@@ -882,6 +1119,7 @@ function InstancesView({
             <button
               className="secondary-button"
               type="button"
+              title="Close this dialog without revealing the stored secret"
               onClick={() => {
                 setRevealPrompt(null);
                 setConfirmKey("");
@@ -893,10 +1131,59 @@ function InstancesView({
               className="primary-button"
               type="button"
               disabled={busy || !confirmKey}
+              title="Reveal this stored secret for 30 seconds"
               onClick={revealSecret}
             >
               <Eye size={16} aria-hidden="true" />
               Reveal
+            </button>
+          </div>
+        </Modal>
+      )}
+      {connectionTest && (
+        <Modal
+          title={connectionTest.succeeded ? "Connection successful" : "Connection failed"}
+          onClose={() => setConnectionTest(null)}
+        >
+          <p>
+            {connectionTest.succeeded
+              ? `Connection to ${connectionTest.target} succeeded.`
+              : `Connection to ${connectionTest.target} could not be established.`}
+          </p>
+          <dl className="definition-grid">
+            {connectionTest.durationMs !== undefined && (
+              <>
+                <dt>Duration</dt>
+                <dd>{connectionTest.durationMs.toLocaleString()} ms</dd>
+              </>
+            )}
+            {!connectionTest.succeeded && connectionTest.errorType && (
+              <>
+                <dt>Error type</dt>
+                <dd>{connectionTest.errorType}</dd>
+              </>
+            )}
+            {!connectionTest.succeeded && connectionTest.error && (
+              <>
+                <dt>Reason</dt>
+                <dd>{connectionTest.error}</dd>
+              </>
+            )}
+            {connectionTest.requestId && (
+              <>
+                <dt>Request ID</dt>
+                <dd>{connectionTest.requestId}</dd>
+              </>
+            )}
+          </dl>
+          <div className="modal-actions">
+            <button
+              className="primary-button"
+              type="button"
+              title="Close connection test result"
+              onClick={() => setConnectionTest(null)}
+            >
+              Close
             </button>
           </div>
         </Modal>
@@ -941,6 +1228,7 @@ function InstanceForm({
         <input
           type={revealed[field] ? "text" : "password"}
           value={revealed[field] || form[field]}
+          title={`Enter the ${label.toLowerCase()} for this authentication method`}
           onChange={(event) => onSecretChange(field, event.target.value)}
           autoComplete="new-password"
           placeholder={editing && hasSecret ? "Stored value unchanged" : ""}
@@ -984,6 +1272,7 @@ function InstanceForm({
           Name
           <input
             value={form.name}
+            title="Unique name used by administrators and MCP agents to select this instance"
             onChange={(event) =>
               onChange({ ...form, name: event.target.value })
             }
@@ -995,6 +1284,7 @@ function InstanceForm({
           Authentication
           <select
             value={form.authType}
+            title="Authentication method used for Business Central requests"
             disabled={editing}
             onChange={(event) =>
               onChange({ ...form, authType: event.target.value as AuthType })
@@ -1010,6 +1300,7 @@ function InstanceForm({
           Description
           <input
             value={form.description}
+            title="Optional description for administrators"
             onChange={(event) =>
               onChange({ ...form, description: event.target.value })
             }
@@ -1022,6 +1313,7 @@ function InstanceForm({
             min="1"
             max="300000"
             value={form.timeoutMs}
+            title="Maximum duration in milliseconds for a Business Central request"
             onChange={(event) =>
               onChange({ ...form, timeoutMs: event.target.value })
             }
@@ -1032,6 +1324,7 @@ function InstanceForm({
           <input
             type="checkbox"
             checked={form.enabled}
+            title="Allow new MCP requests to this instance"
             onChange={(event) =>
               onChange({ ...form, enabled: event.target.checked })
             }
@@ -1044,6 +1337,7 @@ function InstanceForm({
               Tenant ID
               <input
                 value={form.tenantId}
+                title="Microsoft Entra ID directory (tenant) ID used for Business Central Online"
                 onChange={(event) =>
                   onChange({ ...form, tenantId: event.target.value })
                 }
@@ -1054,6 +1348,7 @@ function InstanceForm({
               Client ID
               <input
                 value={form.clientId}
+                title="Microsoft Entra application (client) ID"
                 onChange={(event) =>
                   onChange({ ...form, clientId: event.target.value })
                 }
@@ -1064,6 +1359,7 @@ function InstanceForm({
               Environment
               <input
                 value={form.environment}
+                title="Business Central Online environment name, for example Production or Sandbox"
                 onChange={(event) =>
                   onChange({ ...form, environment: event.target.value })
                 }
@@ -1075,10 +1371,28 @@ function InstanceForm({
         ) : (
           <>
             <label className="wide">
-              Base URL
+              <span className="field-label-with-action">
+                <span>Base URL</span>
+                <button
+                  className="url-assist-button"
+                  type="button"
+                  title={`Insert an editable ${form.authType} OData V4 Base URL example`}
+                  onClick={() =>
+                    onChange({
+                      ...form,
+                      baseUrl: getBaseUrlExample(form.authType),
+                    })
+                  }
+                >
+                  <WandSparkles size={15} aria-hidden="true" />
+                  Use example
+                </button>
+              </span>
               <input
                 type="url"
                 value={form.baseUrl}
+                title={`Business Central OData V4 service root. Example: ${getBaseUrlExample(form.authType)}`}
+                placeholder={getBaseUrlExample(form.authType)}
                 onChange={(event) =>
                   onChange({ ...form, baseUrl: event.target.value })
                 }
@@ -1091,6 +1405,7 @@ function InstanceForm({
                   Username
                   <input
                     value={form.username}
+                    title="Business Central username for this connection"
                     onChange={(event) =>
                       onChange({ ...form, username: event.target.value })
                     }
@@ -1104,10 +1419,20 @@ function InstanceForm({
         )}
       </div>
       <div className="form-actions">
-        <button className="secondary-button" type="button" onClick={onCancel}>
+        <button
+          className="secondary-button"
+          type="button"
+          title="Discard unsaved instance changes"
+          onClick={onCancel}
+        >
           Cancel
         </button>
-        <button className="primary-button" type="submit" disabled={busy}>
+        <button
+          className="primary-button"
+          type="submit"
+          disabled={busy}
+          title={editing ? "Save instance changes" : "Create this instance"}
+        >
           {editing ? "Save changes" : "Create instance"}
         </button>
       </div>
@@ -1138,6 +1463,7 @@ function CompanyForm({
           <input
             value={form.name}
             disabled={editing}
+            title="Unique alias that MCP agents use as bcCompany"
             onChange={(event) =>
               onChange({ ...form, name: event.target.value })
             }
@@ -1148,6 +1474,7 @@ function CompanyForm({
           Technical company
           <input
             value={form.company}
+            title="Exact Business Central Company value sent in the OData company parameter"
             onChange={(event) =>
               onChange({ ...form, company: event.target.value })
             }
@@ -1158,6 +1485,7 @@ function CompanyForm({
           Default execution context
           <input
             value={form.executionContextCode}
+            title="Execution context used when an MCP tool does not provide one"
             onChange={(event) =>
               onChange({ ...form, executionContextCode: event.target.value })
             }
@@ -1168,6 +1496,7 @@ function CompanyForm({
           <input
             type="checkbox"
             checked={form.enabled}
+            title="Allow new MCP requests to this Company"
             onChange={(event) =>
               onChange({ ...form, enabled: event.target.checked })
             }
@@ -1176,10 +1505,20 @@ function CompanyForm({
         </label>
       </div>
       <div className="form-actions">
-        <button className="secondary-button" type="button" onClick={onCancel}>
+        <button
+          className="secondary-button"
+          type="button"
+          title="Discard unsaved Company changes"
+          onClick={onCancel}
+        >
           Cancel
         </button>
-        <button className="primary-button" type="submit" disabled={busy}>
+        <button
+          className="primary-button"
+          type="submit"
+          disabled={busy}
+          title={editing ? "Save Company changes" : "Create this Company"}
+        >
           {editing ? "Save company" : "Create company"}
         </button>
       </div>
@@ -1245,6 +1584,7 @@ function LogsView({
         <button
           className="primary-button"
           type="button"
+          title="Refresh log records and metrics using the selected filters"
           onClick={() => void load()}
           disabled={loading}
         >
@@ -1270,6 +1610,7 @@ function LogsView({
           Status
           <select
             value={filters.status}
+            title="Filter records by successful or failed status"
             onChange={(event) =>
               setFilters({ ...filters, status: event.target.value })
             }
@@ -1283,6 +1624,7 @@ function LogsView({
           Instance
           <input
             value={filters.instanceName}
+            title="Filter records by Instance name"
             onChange={(event) =>
               setFilters({ ...filters, instanceName: event.target.value })
             }
@@ -1292,6 +1634,7 @@ function LogsView({
           Company
           <input
             value={filters.companyName}
+            title="Filter records by Company name"
             onChange={(event) =>
               setFilters({ ...filters, companyName: event.target.value })
             }
@@ -1301,6 +1644,7 @@ function LogsView({
           Tool
           <input
             value={filters.tool}
+            title="Filter records by MCP tool name"
             onChange={(event) =>
               setFilters({ ...filters, tool: event.target.value })
             }
@@ -1310,6 +1654,7 @@ function LogsView({
           Request ID
           <input
             value={filters.requestId}
+            title="Filter records by the server request ID"
             onChange={(event) =>
               setFilters({ ...filters, requestId: event.target.value })
             }
@@ -1320,6 +1665,7 @@ function LogsView({
           <input
             type="datetime-local"
             value={filters.from}
+            title="Show records created on or after this local date and time"
             onChange={(event) =>
               setFilters({
                 ...filters,
@@ -1335,6 +1681,7 @@ function LogsView({
           <input
             type="datetime-local"
             value={filters.to}
+            title="Show records created on or before this local date and time"
             onChange={(event) =>
               setFilters({
                 ...filters,
@@ -1352,6 +1699,7 @@ function LogsView({
             min="1"
             max="1000"
             value={filters.limit}
+            title="Maximum number of records to return, from 1 to 1000"
             onChange={(event) =>
               setFilters({ ...filters, limit: event.target.value })
             }
@@ -1436,6 +1784,7 @@ function LogsView({
             <button
               className="primary-button"
               type="button"
+              title="Close the log details dialog"
               onClick={() => setSelected(null)}
             >
               Close
@@ -1543,8 +1892,17 @@ function DocumentationView({
 }
 function StatusBadge({ enabled }: { enabled: boolean }) {
   return (
-    <span className={`status-pill ${enabled ? "success" : "disabled"}`}>
-      {enabled ? "Enabled" : "Disabled"}
+    <span
+      className={`status-icon ${enabled ? "success" : "disabled"}`}
+      role="img"
+      aria-label={enabled ? "Enabled" : "Disabled"}
+      title={enabled ? "Enabled" : "Disabled"}
+    >
+      {enabled ? (
+        <ShieldCheck size={16} aria-hidden="true" />
+      ) : (
+        <X size={16} aria-hidden="true" />
+      )}
     </span>
   );
 }
