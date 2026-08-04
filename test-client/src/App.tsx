@@ -15,6 +15,7 @@ import {
   Eye,
   FileText,
   KeyRound,
+  ListFilter,
   LogOut,
   Moon,
   Pencil,
@@ -30,6 +31,7 @@ import {
   X,
 } from "lucide-react";
 import "./App.css";
+import { BaseUrlDialog } from "./BaseUrlDialog";
 
 type View = "instances" | "tools" | "logs" | "documentation";
 type Theme = "light" | "dark";
@@ -94,6 +96,10 @@ interface ToolExecutionResult {
   durationMs: number;
   executionContextCode?: string;
 }
+interface ExecutionContextOption {
+  code: string;
+  description?: string;
+}
 interface Session {
   serverUrl: string;
 }
@@ -133,6 +139,10 @@ interface ConnectionTestDialog {
   error?: string;
   errorType?: string;
   requestId?: string;
+}
+interface RevealedSecretDialog {
+  label: string;
+  value: string;
 }
 interface ApiErrorResponse {
   error?: string;
@@ -207,6 +217,38 @@ const baseUrlExamples: Record<Exclude<AuthType, "OAUTH">, string> = {
 };
 const getBaseUrlExample = (authType: AuthType) =>
   authType === "OAUTH" ? "" : baseUrlExamples[authType];
+const getExecutionContextOptions = (
+  toolResult: ToolExecutionResult,
+): ExecutionContextOption[] => {
+  const resultText = toolResult.content.map((item) => item.text).join("\n");
+  try {
+    const response: unknown = JSON.parse(resultText);
+    const contexts = response && typeof response === "object" && "result" in response
+      ? (response as { result?: unknown }).result
+      : undefined;
+    if (!Array.isArray(contexts)) return [];
+
+    return contexts.flatMap((context): ExecutionContextOption[] => {
+      if (!context || typeof context !== "object") return [];
+      const { code, description } = context as {
+        code?: unknown;
+        description?: unknown;
+      };
+      return typeof code === "string" && code.trim()
+        ? [{ code: code.trim(), description: typeof description === "string" ? description : undefined }]
+        : [];
+    });
+  } catch {
+    return [];
+  }
+};
+const resolveEffectiveBaseUrl = (form: InstanceFormData) => {
+  const baseUrl = form.authType === "OAUTH"
+    ? `https://api.businesscentral.dynamics.com/v2.0/${form.tenantId.trim()}/${form.environment.trim()}/ODataV4/`
+    : form.baseUrl.trim();
+
+  return baseUrl ? (baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`) : "";
+};
 const articleCountScript = [
   "FROM Item AS i",
   "| SELECT COUNT(*) AS ArticleCount",
@@ -624,25 +666,21 @@ function InstancesView({
   const [availableCompanySelection, setAvailableCompanySelection] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [revealed, setRevealed] = useState<
-    Partial<Record<SecretField, string>>
-  >({});
-  const [revealPrompt, setRevealPrompt] = useState<SecretField | null>(null);
-  const [confirmKey, setConfirmKey] = useState("");
+  const [revealedSecret, setRevealedSecret] =
+    useState<RevealedSecretDialog | null>(null);
   const [connectionTest, setConnectionTest] =
     useState<ConnectionTestDialog | null>(null);
+  const [baseUrlPreview, setBaseUrlPreview] = useState<string | null>(null);
   const selected =
     instances.find((instance) => instance.name === selectedName) || null;
   useEffect(() => {
-    setRevealed({});
-    setRevealPrompt(null);
-    setConfirmKey("");
+    setRevealedSecret(null);
   }, [selectedName]);
   useEffect(() => {
-    if (!Object.keys(revealed).length) return;
-    const timeout = window.setTimeout(() => setRevealed({}), 30000);
+    if (!revealedSecret) return;
+    const timeout = window.setTimeout(() => setRevealedSecret(null), 30000);
     return () => window.clearTimeout(timeout);
-  }, [revealed]);
+  }, [revealedSecret]);
   const perform = async (operation: () => Promise<void>) => {
     setBusy(true);
     setError("");
@@ -707,7 +745,7 @@ function InstancesView({
       await reload();
       setSelectedName(form.name);
       setInstanceForm(null);
-      setRevealed({});
+      setRevealedSecret(null);
     });
   };
   const submitCompany = (event: FormEvent) => {
@@ -824,29 +862,22 @@ function InstancesView({
       }
     });
   };
-  const revealSecret = () => {
-    if (!selected || !revealPrompt) return;
-    const field = revealPrompt;
+  const revealSecret = (field: SecretField) => {
+    if (!selected) return;
     void perform(async () => {
       const result = await request<{ value: string }>(
         `/instances/${encodeURIComponent(selected.name)}/secrets/${field}/reveal`,
-        {
-          method: "POST",
-          body: JSON.stringify({ confirmAdminKey: confirmKey }),
-        },
+        { method: "POST" },
       );
-      setRevealed((current) => ({ ...current, [field]: result.value }));
-      setRevealPrompt(null);
-      setConfirmKey("");
+      setRevealedSecret({
+        label: field === "password" ? "Password" : "Client secret",
+        value: result.value,
+      });
     });
   };
   const editSecret = (field: SecretField, value: string) => {
     if (!instanceForm) return;
-    setRevealed((current) => {
-      const next = { ...current };
-      delete next[field];
-      return next;
-    });
+    setRevealedSecret(null);
     setInstanceForm({ ...instanceForm, [field]: value });
   };
   return (
@@ -922,11 +953,10 @@ function InstancesView({
               editing={Boolean(selected && selected.name === instanceForm.name)}
               hasPassword={selected?.hasPassword}
               hasClientSecret={selected?.hasClientSecret}
-              revealed={revealed}
               busy={busy}
               onChange={setInstanceForm}
               onSecretChange={editSecret}
-              onReveal={setRevealPrompt}
+              onReveal={revealSecret}
               onCancel={() => setInstanceForm(null)}
               onSubmit={submitInstance}
             />
@@ -999,6 +1029,19 @@ function InstancesView({
                   aria-hidden="true"
                 />
                 Test connection
+              </button>
+              <button
+                className="secondary-button instance-toggle"
+                type="button"
+                title="Show the Business Central base URL used for requests"
+                onClick={() =>
+                  setBaseUrlPreview(
+                    resolveEffectiveBaseUrl(instanceToForm(selected)),
+                  )
+                }
+              >
+                <Server size={16} aria-hidden="true" />
+                Show base URL
               </button>
               <button
                 className="secondary-button instance-toggle"
@@ -1196,6 +1239,30 @@ function InstancesView({
           )}
         </section>
       </div>
+      {revealedSecret && (
+        <Modal
+          title={revealedSecret.label}
+          onClose={() => setRevealedSecret(null)}
+        >
+          <p>This value is visible for 30 seconds.</p>
+          <input
+            className="revealed-secret-value"
+            value={revealedSecret.value}
+            readOnly
+            aria-label={revealedSecret.label}
+          />
+          <div className="modal-actions">
+            <button
+              className="primary-button"
+              type="button"
+              title="Close dialog"
+              onClick={() => setRevealedSecret(null)}
+            >
+              Close
+            </button>
+          </div>
+        </Modal>
+      )}
       {companyPickerOpen && selected && (
         <Modal
           title="Select Business Central company"
@@ -1257,53 +1324,6 @@ function InstancesView({
           </div>
         </Modal>
       )}
-      {revealPrompt && (
-        <Modal
-          title={`Reveal ${revealPrompt === "password" ? "password" : "client secret"}`}
-          onClose={() => {
-            setRevealPrompt(null);
-            setConfirmKey("");
-          }}
-        >
-          <p>
-            Confirm the Admin API key before showing this value. The value is
-            cleared after 30 seconds and when you switch instances.
-          </p>
-          <label>
-            Admin API key
-            <input
-              type="password"
-              value={confirmKey}
-              title="Re-enter the Admin API key to reveal this stored secret"
-              onChange={(event) => setConfirmKey(event.target.value)}
-              autoComplete="off"
-            />
-          </label>
-          <div className="modal-actions">
-            <button
-              className="secondary-button"
-              type="button"
-              title="Close this dialog without revealing the stored secret"
-              onClick={() => {
-                setRevealPrompt(null);
-                setConfirmKey("");
-              }}
-            >
-              Cancel
-            </button>
-            <button
-              className="primary-button"
-              type="button"
-              disabled={busy || !confirmKey}
-              title="Reveal this stored secret for 30 seconds"
-              onClick={revealSecret}
-            >
-              <Eye size={16} aria-hidden="true" />
-              Reveal
-            </button>
-          </div>
-        </Modal>
-      )}
       {connectionTest && (
         <Modal
           title={connectionTest.succeeded ? "Connection successful" : "Connection failed"}
@@ -1352,6 +1372,12 @@ function InstancesView({
           </div>
         </Modal>
       )}
+      {baseUrlPreview && (
+        <BaseUrlDialog
+          baseUrl={baseUrlPreview}
+          onClose={() => setBaseUrlPreview(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1361,7 +1387,6 @@ function InstanceForm({
   editing,
   hasPassword,
   hasClientSecret,
-  revealed,
   busy,
   onChange,
   onSecretChange,
@@ -1373,7 +1398,6 @@ function InstanceForm({
   editing: boolean;
   hasPassword?: boolean;
   hasClientSecret?: boolean;
-  revealed: Partial<Record<SecretField, string>>;
   busy: boolean;
   onChange: (value: InstanceFormData) => void;
   onSecretChange: (field: SecretField, value: string) => void;
@@ -1381,37 +1405,53 @@ function InstanceForm({
   onCancel: () => void;
   onSubmit: (event: FormEvent) => void;
 }) {
+  const [visibleSecret, setVisibleSecret] =
+    useState<RevealedSecretDialog | null>(null);
+  const [showBaseUrl, setShowBaseUrl] = useState(false);
+  const effectiveBaseUrl = resolveEffectiveBaseUrl(form);
+  useEffect(() => {
+    if (!visibleSecret) return;
+    const timeout = window.setTimeout(() => setVisibleSecret(null), 30000);
+    return () => window.clearTimeout(timeout);
+  }, [visibleSecret]);
   const secretInput = (
     field: SecretField,
     label: string,
     hasSecret: boolean | undefined,
-  ) => (
-    <label>
-      {label}
-      <span className="secret-input">
-        <input
-          type={revealed[field] ? "text" : "password"}
-          value={revealed[field] || form[field]}
-          title={`Enter the ${label.toLowerCase()} for this authentication method`}
-          onChange={(event) => onSecretChange(field, event.target.value)}
-          autoComplete="new-password"
-          placeholder={editing && hasSecret ? "Stored value unchanged" : ""}
-          required={!editing}
-        />
-        {editing && hasSecret && (
+  ) => {
+    const isStoredSecret = editing && hasSecret && !form[field];
+    return (
+      <label>
+        {label}
+        <span className="secret-input">
+          <input
+            type="password"
+            value={form[field]}
+            title={`Enter the ${label.toLowerCase()} for this authentication method`}
+            onChange={(event) => onSecretChange(field, event.target.value)}
+            autoComplete="new-password"
+            placeholder={editing && hasSecret ? "Stored value unchanged" : ""}
+            required={!editing}
+          />
           <button
             className="icon-button secret-eye"
             type="button"
-            title={`Reveal ${label.toLowerCase()}`}
-            aria-label={`Reveal ${label.toLowerCase()}`}
-            onClick={() => onReveal(field)}
+            title={`Show ${label.toLowerCase()}`}
+            aria-label={`Show ${label.toLowerCase()}`}
+            onClick={() => {
+              if (isStoredSecret) {
+                onReveal(field);
+                return;
+              }
+              setVisibleSecret({ label, value: form[field] });
+            }}
           >
             <Eye size={16} />
           </button>
-        )}
-      </span>
-    </label>
-  );
+        </span>
+      </label>
+    );
+  };
   return (
     <form className="edit-form" onSubmit={onSubmit}>
       <div className="panel-heading">
@@ -1523,7 +1563,8 @@ function InstanceForm({
               Environment
               <input
                 value={form.environment}
-                title="Business Central Online environment name, for example Production or Sandbox"
+                title="Technical Business Central Online environment name"
+                placeholder="P4E_Sandbox"
                 onChange={(event) =>
                   onChange({ ...form, environment: event.target.value })
                 }
@@ -1534,7 +1575,10 @@ function InstanceForm({
           </>
         ) : (
           <>
-            <label className="wide">
+            <label
+              className="wide"
+              title="Select an MCP tool to execute, e.g. jmxq_searchTables to find a table."
+            >
               <span className="field-label-with-action">
                 <span>Base URL</span>
                 <button
@@ -1565,7 +1609,7 @@ function InstanceForm({
             </label>
             {form.authType !== "SSO" && (
               <>
-                <label>
+                <label title="Select the configured Business Central instance, e.g. Sandbox.">
                   Username
                   <input
                     value={form.username}
@@ -1586,6 +1630,16 @@ function InstanceForm({
         <button
           className="secondary-button"
           type="button"
+          disabled={!effectiveBaseUrl}
+          title="Show the Business Central base URL used for requests"
+          onClick={() => setShowBaseUrl(true)}
+        >
+          <Server size={16} aria-hidden="true" />
+          Show base URL
+        </button>
+        <button
+          className="secondary-button"
+          type="button"
           title="Discard unsaved instance changes"
           onClick={onCancel}
         >
@@ -1600,6 +1654,33 @@ function InstanceForm({
           {editing ? "Save changes" : "Create instance"}
         </button>
       </div>
+      {visibleSecret && (
+        <Modal title={visibleSecret.label} onClose={() => setVisibleSecret(null)}>
+          <p>This value is visible for 30 seconds.</p>
+          <input
+            className="revealed-secret-value"
+            value={visibleSecret.value}
+            readOnly
+            aria-label={visibleSecret.label}
+          />
+          <div className="modal-actions">
+            <button
+              className="primary-button"
+              type="button"
+              title="Close dialog"
+              onClick={() => setVisibleSecret(null)}
+            >
+              Close
+            </button>
+          </div>
+        </Modal>
+      )}
+      {showBaseUrl && (
+        <BaseUrlDialog
+          baseUrl={effectiveBaseUrl}
+          onClose={() => setShowBaseUrl(false)}
+        />
+      )}
     </form>
   );
 }
@@ -1706,6 +1787,11 @@ function ToolsView({
   const [searchPattern, setSearchPattern] = useState("");
   const [script, setScript] = useState("");
   const [selectedScriptTemplate, setSelectedScriptTemplate] = useState("");
+  const [executionContextPickerOpen, setExecutionContextPickerOpen] = useState(false);
+  const [availableExecutionContexts, setAvailableExecutionContexts] = useState<ExecutionContextOption[]>([]);
+  const [selectedAvailableExecutionContext, setSelectedAvailableExecutionContext] = useState("");
+  const [loadingExecutionContexts, setLoadingExecutionContexts] = useState(false);
+  const [executionContextPickerError, setExecutionContextPickerError] = useState("");
   const [result, setResult] = useState<ToolExecutionResult | null>(null);
   const [error, setError] = useState("");
   const [loadingTools, setLoadingTools] = useState(true);
@@ -1724,6 +1810,10 @@ function ToolsView({
   const requiresTarget = (tool: ToolDefinition | undefined) => {
     const required = tool?.inputSchema.required;
     return Array.isArray(required) && required.includes("bcInstance");
+  };
+  const acceptsExecutionContext = (tool: ToolDefinition | undefined) => {
+    const properties = tool?.inputSchema.properties;
+    return typeof properties === "object" && properties !== null && "executionContextCode" in properties;
   };
 
   useEffect(() => {
@@ -1767,6 +1857,47 @@ function ToolsView({
     }
   }, [selectedCompany?.executionContextCode, selectedCompanyName]);
 
+  const loadAvailableExecutionContexts = async () => {
+    if (!selectedInstanceName || !selectedCompanyName) return;
+
+    setLoadingExecutionContexts(true);
+    setExecutionContextPickerError("");
+    try {
+      const toolResult = await request<ToolExecutionResult>("/tools/call", {
+        method: "POST",
+        body: JSON.stringify({
+          name: "jmxq_listExecutionContexts",
+          arguments: {
+            bcInstance: selectedInstanceName,
+            bcCompany: selectedCompanyName,
+          },
+        }),
+      });
+      const contexts = getExecutionContextOptions(toolResult);
+      setAvailableExecutionContexts(contexts);
+      setSelectedAvailableExecutionContext((current) =>
+        contexts.some((context) => context.code === current)
+          ? current
+          : (contexts.find((context) => context.code === executionContextCode)?.code || ""),
+      );
+    } catch (caught) {
+      setAvailableExecutionContexts([]);
+      setExecutionContextPickerError(
+        caught instanceof Error
+          ? caught.message
+          : "Unable to load execution contexts.",
+      );
+    } finally {
+      setLoadingExecutionContexts(false);
+    }
+  };
+
+  const openExecutionContextPicker = () => {
+    setExecutionContextPickerOpen(true);
+    setSelectedAvailableExecutionContext("");
+    void loadAvailableExecutionContexts();
+  };
+
   const runTool = async (toolName = selectedToolName) => {
     const tool = tools.find((candidate) => candidate.name === toolName);
     if (!tool) return;
@@ -1780,7 +1911,7 @@ function ToolsView({
     if (targetRequired) {
       args.bcInstance = selectedInstanceName;
       args.bcCompany = selectedCompanyName;
-      if (executionContextCode.trim()) {
+      if (acceptsExecutionContext(tool) && executionContextCode.trim()) {
         args.executionContextCode = executionContextCode.trim();
       }
     }
@@ -1858,7 +1989,7 @@ function ToolsView({
               Tool
               <select
                 value={selectedToolName}
-                title="Select an MCP tool to execute"
+                title="Select an MCP tool to execute, e.g. jmxq_searchTables to find a table."
                 onChange={(event) => setSelectedToolName(event.target.value)}
                 disabled={loadingTools || running}
               >
@@ -1874,11 +2005,11 @@ function ToolsView({
             )}
             {requiresTarget(selectedTool) && (
               <>
-                <label>
+                <label title="Select the Business Central company, e.g. CRONUS International Ltd.">
                   Instance
                   <select
                     value={selectedInstanceName}
-                    title="Business Central Instance used for this tool call"
+                    title="Select the configured Business Central instance, e.g. Sandbox."
                     onChange={(event) => setSelectedInstanceName(event.target.value)}
                     disabled={running}
                     required
@@ -1899,7 +2030,7 @@ function ToolsView({
                   Company
                   <select
                     value={selectedCompanyName}
-                    title="Business Central Company used for this tool call"
+                    title="Select the Business Central company, e.g. CRONUS International Ltd."
                     onChange={(event) => setSelectedCompanyName(event.target.value)}
                     disabled={running || !selectedInstanceName}
                     required
@@ -1912,24 +2043,47 @@ function ToolsView({
                     ))}
                   </select>
                 </label>
-                <label className="wide">
-                  Execution context
-                  <input
-                    value={executionContextCode}
-                    title="Optional execution context; defaults to the selected Company's configuration"
-                    onChange={(event) => setExecutionContextCode(event.target.value)}
-                    disabled={running}
-                    placeholder={selectedCompany?.executionContextCode || "Default context"}
-                  />
-                </label>
+                {acceptsExecutionContext(selectedTool) && (
+                  <div className="wide execution-context-field">
+                    <div className="field-label-with-action">
+                      <label
+                        htmlFor="execution-context"
+                        title="Optional execution context. Example: DEFAULT or ALL. Leave empty to use the selected Company's default."
+                      >
+                        Execution context
+                      </label>
+                      <button
+                        className="url-assist-button"
+                        type="button"
+                        disabled={running || !selectedInstanceName || !selectedCompanyName}
+                        title="Select a listed execution context, e.g. DEFAULT or ALL."
+                        onClick={openExecutionContextPicker}
+                      >
+                        <ListFilter size={15} aria-hidden="true" />
+                        Select available
+                      </button>
+                    </div>
+                    <input
+                      id="execution-context"
+                      value={executionContextCode}
+                      title="Optional execution context. Example: DEFAULT or ALL. Leave empty to use the selected Company's default."
+                      onChange={(event) => setExecutionContextCode(event.target.value)}
+                      disabled={running}
+                      placeholder={selectedCompany?.executionContextCode || "Default context"}
+                    />
+                  </div>
+                )}
               </>
             )}
             {selectedToolName === "jmxq_describeTableFields" && (
-              <label className="wide">
+              <label
+                className="wide"
+                title="Enter a table name or numeric reference, e.g. Customer or #18."
+              >
                 Table reference
                 <input
                   value={tableRef}
-                  title="Table name or numeric reference, such as Customer or #18"
+                  title="Enter a table name or numeric reference, e.g. Customer or #18."
                   onChange={(event) => setTableRef(event.target.value)}
                   disabled={running}
                   required
@@ -1937,11 +2091,14 @@ function ToolsView({
               </label>
             )}
             {selectedToolName === "jmxq_searchTables" && (
-              <label className="wide">
+              <label
+                className="wide"
+                title="Enter a table search pattern with wildcards, e.g. *customer* or *ledger*."
+              >
                 Search pattern
                 <input
                   value={searchPattern}
-                  title="Table name search pattern with wildcards"
+                  title="Enter a table search pattern with wildcards, e.g. *customer* or *ledger*."
                   onChange={(event) => setSearchPattern(event.target.value)}
                   disabled={running}
                   placeholder="*customer*"
@@ -1951,11 +2108,14 @@ function ToolsView({
             )}
             {selectedToolName === "jmxq_executeScript" && (
               <>
-                <label className="wide">
+                <label
+                  className="wide"
+                  title="Select a read-only JMX-QUERY example, e.g. Article count."
+                >
                   Test script
                   <select
                     value={selectedScriptTemplate}
-                    title="Select a read-only JMX-QUERY test script"
+                    title="Select a read-only JMX-QUERY example, e.g. Article count."
                     onChange={(event) => {
                       const template = event.target.value;
                       setSelectedScriptTemplate(template);
@@ -1969,11 +2129,14 @@ function ToolsView({
                     <option value="article-count">Article count (read-only)</option>
                   </select>
                 </label>
-                <label className="wide">
+                <label
+                  className="wide"
+                  title={"JMX-QUERY script sent to the selected Business Central Company. Example:\nFROM Item AS i\n| SELECT COUNT(*) AS ArticleCount"}
+                >
                   JMX-QUERY script
                   <textarea
                     value={script}
-                    title="JMX-QUERY script sent to the selected Business Central Company"
+                    title={"JMX-QUERY script sent to the selected Business Central Company. Example:\nFROM Item AS i\n| SELECT COUNT(*) AS ArticleCount"}
                     onChange={(event) => {
                       setScript(event.target.value);
                       setSelectedScriptTemplate("");
@@ -2074,6 +2237,72 @@ function ToolsView({
             >
               <Play size={17} aria-hidden="true" />
               Run script
+            </button>
+          </div>
+        </Modal>
+      )}
+      {executionContextPickerOpen && (
+        <Modal
+          title="Select execution context"
+          onClose={() => setExecutionContextPickerOpen(false)}
+        >
+          {executionContextPickerError && (
+            <p className="form-error" role="alert">
+              {executionContextPickerError}
+            </p>
+          )}
+          <label title="Execution contexts listed by Business Central, e.g. DEFAULT or ALL.">
+            Available execution contexts
+            <select
+              value={selectedAvailableExecutionContext}
+              disabled={loadingExecutionContexts}
+              title="Execution contexts listed by Business Central, e.g. DEFAULT or ALL."
+              onChange={(event) =>
+                setSelectedAvailableExecutionContext(event.target.value)
+              }
+            >
+              <option value="">
+                {loadingExecutionContexts
+                  ? "Loading execution contexts..."
+                  : availableExecutionContexts.length
+                    ? "Select execution context"
+                    : "No execution contexts available"}
+              </option>
+              {availableExecutionContexts.map((context) => (
+                <option key={context.code} value={context.code}>
+                  {context.description && context.description !== context.code
+                    ? `${context.description} (${context.code})`
+                    : context.code}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="modal-actions">
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={loadingExecutionContexts}
+              title="Reload execution contexts from Business Central"
+              onClick={() => void loadAvailableExecutionContexts()}
+            >
+              <RefreshCw
+                size={16}
+                className={loadingExecutionContexts ? "spinning" : ""}
+                aria-hidden="true"
+              />
+              Reload
+            </button>
+            <button
+              className="primary-button"
+              type="button"
+              disabled={!selectedAvailableExecutionContext || loadingExecutionContexts}
+              title="Use the selected execution context"
+              onClick={() => {
+                setExecutionContextCode(selectedAvailableExecutionContext);
+                setExecutionContextPickerOpen(false);
+              }}
+            >
+              Use execution context
             </button>
           </div>
         </Modal>

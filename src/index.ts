@@ -511,10 +511,6 @@ if (config.ADMIN_API_ENABLED) {
     });
 
     fastify.post('/admin/api/instances/:instanceName/secrets/:field/reveal', async (request, reply) => {
-        const body = request.body as { confirmAdminKey?: unknown } | undefined;
-        if (!hasValidAdminKey(body?.confirmAdminKey)) {
-            return reply.code(403).send({ error: 'Forbidden.' });
-        }
         const field = (request.params as any).field;
         if (field !== 'password' && field !== 'clientSecret') {
             return reply.code(400).send({ error: 'Invalid request.' });
