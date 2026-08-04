@@ -153,7 +153,7 @@ fastify.addHook('onReady', () => {
 
 // --- Authentication Middleware ---
 const isValidApiKey = (request: any) => {
-    const configKey = config.MCP_API_KEY?.trim();
+    const configKey = config.JMXQ_MCPAPI_KEY?.trim();
 
     // If not configured, allow all
     if (!configKey) {
@@ -881,7 +881,7 @@ const start = async () => {
 
         WindowsEventLogger.info('JMX-QUERY MCP Server started successfully');
 
-        const isAuthActive = !!config.MCP_API_KEY;
+        const isAuthActive = !!config.JMXQ_MCPAPI_KEY;
         const streamableEndpoint = `http://${config.MCP_HOST}:${streamablePort || config.MCP_PORT}/mcp/stream`;
         logger.info(`Streamable HTTP endpoint | ${streamableEndpoint}`);
         logger.info(`API key authentication ${isAuthActive ? 'enabled' : 'disabled'}`);

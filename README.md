@@ -55,7 +55,7 @@ For SSO, the Windows account running the service must be an authorized Business 
 
    - `INSTANCE_MASTER_KEY`: encrypts the complete Instance and Company store. It must have at least 32 characters.
    - `ADMIN_API_KEY`: protects the Admin GUI and Admin API.
-   - `MCP_API_KEY`: protects HTTP MCP clients.
+  - `JMXQ_MCPAPI_KEY`: protects HTTP MCP clients.
 
 5. Start the server for an interactive verification.
 
@@ -85,7 +85,7 @@ For SSO, the Windows account running the service must be an authorized Business 
 | `MCP_PORT` | Main HTTP port for Admin GUI and SSE MCP. | `5000` |
 | `MCP_STREAMABLE_PORT` | Optional separate Streamable HTTP port. | unset |
 | `MCP_CORS_ORIGINS` | Comma-separated browser origin allowlist. | local Vite origins |
-| `MCP_API_KEY` | Bearer key for HTTP MCP endpoints. | unset |
+| `JMXQ_MCPAPI_KEY` | Bearer key for HTTP MCP endpoints. | unset |
 | `ADMIN_API_ENABLED` | Enables protected Admin API and GUI access. | `false` |
 | `ADMIN_API_KEY` | Bearer key for Admin API and GUI login. Required when Admin API is enabled. | unset |
 | `INSTANCE_MASTER_KEY` | Master key for AES-256-GCM Instance Store encryption. Required. | unset |
@@ -190,7 +190,7 @@ The **Documentation** view retrieves and renders this root `README.md` after Adm
 | SSE messages | `http://127.0.0.1:5000/mcp/messages?sessionId=<id>` |
 | Admin GUI | `http://127.0.0.1:5000/admin` |
 
-When `MCP_API_KEY` is configured, HTTP MCP clients must send `Authorization: Bearer <MCP_API_KEY>`. This key is different from `ADMIN_API_KEY`.
+When `JMXQ_MCPAPI_KEY` is configured, HTTP MCP clients must send `Authorization: Bearer <JMXQ_MCPAPI_KEY>`. This key is different from `ADMIN_API_KEY`.
 
 ## VS Code and GitHub Copilot
 
@@ -318,8 +318,8 @@ Never edit `instances.enc` manually. Restore it only with the matching master ke
 | Symptom | Check |
 | --- | --- |
 | Server fails at startup | Ensure `INSTANCE_MASTER_KEY` has at least 32 characters. When `ADMIN_API_ENABLED=true`, configure `ADMIN_API_KEY`. |
-| Admin login fails | Verify the URL, `ADMIN_API_ENABLED=true`, and the Admin key. Do not use `MCP_API_KEY` here. |
-| MCP client receives `401` | Configure `MCP_API_KEY` in the client Authorization header. |
+| Admin login fails | Verify the URL, `ADMIN_API_ENABLED=true`, and the Admin key. Do not use `JMXQ_MCPAPI_KEY` here. |
+| MCP client receives `401` | Configure `JMXQ_MCPAPI_KEY` in the client Authorization header. |
 | Agent cannot find a target | Create and enable an Instance and Company in the Admin GUI, then call `jmxq_listInstances`. |
 | Instance is disabled | Enable the Instance. All of its Companies are blocked while disabled. |
 | SSO works in a terminal but fails as a service | Configure the service Log On account as a Business Central-authorized domain account. |

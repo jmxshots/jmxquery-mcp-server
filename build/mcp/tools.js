@@ -82,7 +82,7 @@ export const toolDefinitions = [
     },
     {
         name: 'jmxq_listExecutionContexts',
-        description: 'Lists execution contexts available to the selected target. Omit executionContextCode in later calls to use the selected Company default.',
+        description: 'Lists execution contexts available to the selected instance and Company. This tool does not take an execution context; use a returned code in later calls, or omit it to use the selected Company default.',
         inputSchema: createBcToolInputSchema(),
         annotations: readOnlyAnnotations,
     },

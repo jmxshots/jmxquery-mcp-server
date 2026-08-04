@@ -129,7 +129,7 @@ fastify.addHook('onReady', () => {
 // so sharing one instance across transports would break all but the last one.
 // --- Authentication Middleware ---
 const isValidApiKey = (request) => {
-    const configKey = config.MCP_API_KEY?.trim();
+    const configKey = config.JMXQ_MCPAPI_KEY?.trim();
     // If not configured, allow all
     if (!configKey) {
         return true;
@@ -782,7 +782,7 @@ const start = async () => {
             await streamableFastify.listen({ port: streamablePort, host: config.MCP_HOST });
         }
         WindowsEventLogger.info('JMX-QUERY MCP Server started successfully');
-        const isAuthActive = !!config.MCP_API_KEY;
+        const isAuthActive = !!config.JMXQ_MCPAPI_KEY;
         const streamableEndpoint = `http://${config.MCP_HOST}:${streamablePort || config.MCP_PORT}/mcp/stream`;
         logger.info(`Streamable HTTP endpoint | ${streamableEndpoint}`);
         logger.info(`API key authentication ${isAuthActive ? 'enabled' : 'disabled'}`);
