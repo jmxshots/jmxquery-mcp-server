@@ -5,11 +5,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Parse CLI arguments: --instance <label>
-const args = process.argv.slice(2);
-const instanceIndex = args.indexOf('--instance');
-const instanceLabel = instanceIndex !== -1 ? args[instanceIndex + 1] : 'Server';
-const serviceName = `JMX-QUERY MCP - ${instanceLabel}`;
+const serviceName = 'JMX-QUERY MCP Server';
 
 console.log(`Uninstalling service: "${serviceName}"`);
 

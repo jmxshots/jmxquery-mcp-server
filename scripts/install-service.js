@@ -7,30 +7,22 @@ import dotenv from 'dotenv';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Parse CLI arguments: --instance <label> --env-file <path>
-const args = process.argv.slice(2);
-const instanceIndex = args.indexOf('--instance');
-const envFileIndex = args.indexOf('--env-file');
-const instanceLabel = instanceIndex !== -1 ? args[instanceIndex + 1] : 'Server';
-const envFilePath = envFileIndex !== -1 ? args[envFileIndex + 1] : null;
-
-const serviceName = `JMX-QUERY MCP - ${instanceLabel}`;
+const serviceName = 'JMX-QUERY MCP Server';
+const envFilePath = path.join(__dirname, '..', '.env');
 
 // Build service env: inline ALL variables from the .env file directly so that
 // winsw sets them on the process — this is more reliable than relying on
 // DOTENV_CONFIG_PATH being forwarded through the winsw → wrapper.js → fork chain.
-let serviceEnv = [];
-if (envFilePath) {
-    const resolvedEnvFile = path.resolve(envFilePath);
-    const raw = fs.readFileSync(resolvedEnvFile, 'utf8');
-    const parsed = dotenv.parse(raw);
-    serviceEnv = Object.entries(parsed).map(([name, value]) => ({ name, value }));
-    // Also keep DOTENV_CONFIG_PATH so config.ts can still use dotenv for any vars
-    // not covered by the inline entries (e.g. future additions to the .env file).
-    serviceEnv.push({ name: 'DOTENV_CONFIG_PATH', value: resolvedEnvFile });
+const resolvedEnvFile = path.resolve(envFilePath);
+if (!fs.existsSync(resolvedEnvFile)) {
+    throw new Error(`Service configuration file not found: ${resolvedEnvFile}`);
 }
+const raw = fs.readFileSync(resolvedEnvFile, 'utf8');
+const parsed = dotenv.parse(raw);
+const serviceEnv = Object.entries(parsed).map(([name, value]) => ({ name, value }));
+serviceEnv.push({ name: 'DOTENV_CONFIG_PATH', value: resolvedEnvFile });
 
-console.log(`Installing service: "${serviceName}"${envFilePath ? ` with env-file: ${path.resolve(envFilePath)}` : ''}`);
+console.log(`Installing service: "${serviceName}" with ${resolvedEnvFile}`);
 
 // Create a new service object
 const svc = new Service({

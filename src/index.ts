@@ -1,12 +1,23 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import fastifyStatic from '@fastify/static';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { access, readFile, stat } from 'node:fs/promises';
+import path from 'node:path';
 import { createMcpServer } from './mcp/server.js';
 import { config } from './config.js';
 import { pino } from 'pino';
 import { WindowsEventLogger } from './utils/eventLogger.js';
+import { BcClientFactory } from './instances/clientFactory.js';
+import { EncryptedInstanceRegistry } from './instances/registry.js';
+import { LogService } from './logging/logService.js';
+
+if (config.ADMIN_API_ENABLED && !config.ADMIN_API_KEY?.trim()) {
+    throw new Error('ADMIN_API_KEY must be configured when ADMIN_API_ENABLED is true.');
+}
 
 // IMPORTANT: Logs MUST go to stderr when using Stdio transport to avoid corrupting the protocol
 const logger = pino({
@@ -21,6 +32,18 @@ const logger = pino({
         },
     },
 });
+
+const instanceRegistry = new EncryptedInstanceRegistry(
+    config.INSTANCE_STORE_PATH,
+    config.INSTANCE_MASTER_KEY,
+);
+await instanceRegistry.load();
+const bcClientFactory = new BcClientFactory(instanceRegistry);
+const logService = new LogService(
+    config.LOG_DIR,
+    config.LOG_RETENTION_DAYS,
+    config.LOG_SCRIPT_MAX_LENGTH,
+);
 
 const toSafeEventMessage = (value: unknown, maxLen = 400) => {
     const raw = typeof value === 'string'
@@ -82,7 +105,7 @@ const corsOriginHandler = (origin: string | undefined, callback: (error: Error |
 
 await fastify.register(cors, {
     origin: corsOriginHandler,
-    methods: ['GET', 'POST', 'OPTIONS', 'DELETE'],
+    methods: ['GET', 'POST', 'PATCH', 'OPTIONS', 'DELETE'],
     allowedHeaders: [
         'Content-Type',
         'X-MCP-ClientId',
@@ -93,6 +116,22 @@ await fastify.register(cors, {
     ],
     exposedHeaders: ['mcp-session-id', 'mcp-protocol-version'],
 });
+
+const adminUiRoot = path.resolve(process.cwd(), 'admin-ui');
+let adminUiAvailable = false;
+try {
+    adminUiAvailable = (await stat(adminUiRoot)).isDirectory();
+} catch {
+    logger.warn({ adminUiRoot }, 'Admin UI build directory is unavailable');
+}
+
+if (adminUiAvailable) {
+    await fastify.register(fastifyStatic, {
+        root: adminUiRoot,
+        prefix: '/admin/',
+        wildcard: false,
+    });
+}
 
 // Configure the underlying Node server timeouts
 fastify.addHook('onReady', () => {
@@ -114,31 +153,293 @@ const isValidApiKey = (request: any) => {
         return true;
     }
 
-    const authHeader = request.headers['authorization'] || request.headers['Authorization'];
+    const authHeader = request.headers.authorization;
     const bearerToken = (typeof authHeader === 'string' && authHeader.startsWith('Bearer '))
         ? authHeader.substring(7).trim()
         : null;
 
-    const providedKey = bearerToken;
-    const isValid = providedKey === configKey;
-
-    logger.info({
-        path: request.url,
-        hasAuthHeader: !!authHeader,
-        providedKeyLength: providedKey?.length || 0,
-        expectedKeyLength: configKey.length,
-        isValid
-    }, 'Authentication Validation Detail');
-
-    if (!isValid) {
-        logger.warn({
-            path: request.url,
-            providedKeyType: typeof providedKey
-        }, 'API Key Validation Failed');
-    }
-
-    return isValid;
+    return bearerToken === configKey;
 };
+
+const hasValidAdminKey = (providedKey: unknown): boolean => {
+    const configuredKey = config.ADMIN_API_KEY?.trim();
+    if (!configuredKey || typeof providedKey !== 'string' || providedKey.length !== configuredKey.length) {
+        return false;
+    }
+    return timingSafeEqual(Buffer.from(providedKey), Buffer.from(configuredKey));
+};
+
+const isValidAdminApiKey = (request: any): boolean => {
+    const authHeader = request.headers.authorization;
+    const bearerToken = typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
+        ? authHeader.substring(7).trim()
+        : undefined;
+    return hasValidAdminKey(bearerToken);
+};
+
+const sendAdminError = (reply: any, error: unknown) => {
+    const message = error instanceof Error ? error.message : '';
+    const statusCode = message.includes('was not found') ? 404 : 400;
+    return reply.code(statusCode).send({ error: statusCode === 404 ? 'Not found.' : 'Invalid request.' });
+};
+
+if (config.ADMIN_API_ENABLED) {
+    fastify.addHook('onRequest', async (request, reply) => {
+        if (request.url.startsWith('/admin/api') && !isValidAdminApiKey(request)) {
+            return reply.code(401).send({ error: 'Unauthorized.' });
+        }
+    });
+
+    fastify.get('/', async (_request, reply) => reply.redirect('/admin'));
+
+    fastify.get('/admin/api/instances', async (_request, reply) => {
+        reply.header('cache-control', 'no-store');
+        return instanceRegistry.listPublicInstances();
+    });
+
+    fastify.post('/admin/api/instances', async (request, reply) => {
+        try {
+            const instance = await instanceRegistry.createInstance(request.body);
+            reply.code(201).header('cache-control', 'no-store');
+            return instance;
+        } catch (error) {
+            return sendAdminError(reply, error);
+        }
+    });
+
+    fastify.patch('/admin/api/instances/:instanceName', async (request, reply) => {
+        try {
+            const instance = await instanceRegistry.updateInstance((request.params as any).instanceName, request.body);
+            reply.header('cache-control', 'no-store');
+            return instance;
+        } catch (error) {
+            return sendAdminError(reply, error);
+        }
+    });
+
+    fastify.delete('/admin/api/instances/:instanceName', async (request, reply) => {
+        try {
+            await instanceRegistry.deleteInstance((request.params as any).instanceName);
+            return reply.code(204).send();
+        } catch (error) {
+            return sendAdminError(reply, error);
+        }
+    });
+
+    fastify.patch('/admin/api/instances/:instanceName/enabled', async (request, reply) => {
+        try {
+            const instance = await instanceRegistry.setInstanceEnabled(
+                (request.params as any).instanceName,
+                (request.body as any)?.enabled,
+            );
+            reply.header('cache-control', 'no-store');
+            return instance;
+        } catch (error) {
+            return sendAdminError(reply, error);
+        }
+    });
+
+    fastify.post('/admin/api/instances/:instanceName/companies', async (request, reply) => {
+        try {
+            const company = await instanceRegistry.createCompany((request.params as any).instanceName, request.body);
+            reply.code(201).header('cache-control', 'no-store');
+            return company;
+        } catch (error) {
+            return sendAdminError(reply, error);
+        }
+    });
+
+    fastify.patch('/admin/api/instances/:instanceName/companies/:companyName', async (request, reply) => {
+        try {
+            const company = await instanceRegistry.updateCompany(
+                (request.params as any).instanceName,
+                (request.params as any).companyName,
+                request.body,
+            );
+            reply.header('cache-control', 'no-store');
+            return company;
+        } catch (error) {
+            return sendAdminError(reply, error);
+        }
+    });
+
+    fastify.delete('/admin/api/instances/:instanceName/companies/:companyName', async (request, reply) => {
+        try {
+            await instanceRegistry.deleteCompany((request.params as any).instanceName, (request.params as any).companyName);
+            return reply.code(204).send();
+        } catch (error) {
+            return sendAdminError(reply, error);
+        }
+    });
+
+    fastify.patch('/admin/api/instances/:instanceName/companies/:companyName/enabled', async (request, reply) => {
+        try {
+            const company = await instanceRegistry.setCompanyEnabled(
+                (request.params as any).instanceName,
+                (request.params as any).companyName,
+                (request.body as any)?.enabled,
+            );
+            reply.header('cache-control', 'no-store');
+            return company;
+        } catch (error) {
+            return sendAdminError(reply, error);
+        }
+    });
+
+    fastify.post('/admin/api/instances/:instanceName/companies/:companyName/test-connection', async (request, reply) => {
+        const { instanceName, companyName } = request.params as { instanceName: string; companyName: string };
+        const requestId = randomUUID();
+        const startedAt = Date.now();
+        let target: ReturnType<typeof bcClientFactory.resolve> | undefined;
+
+        try {
+            target = bcClientFactory.resolve(instanceName, companyName);
+            await target.client.callAction('JMXQ_ApiInfoService', 'ListExecutionContexts', target.company.company, {});
+
+            try {
+                await logService.record({
+                    instanceId: target.instance.id,
+                    instanceName: target.instance.name,
+                    companyId: target.company.id,
+                    companyName: target.company.name,
+                    tool: 'admin_testConnection',
+                    status: 'success',
+                    durationMs: Date.now() - startedAt,
+                    requestId,
+                    executionContextCode: target.company.executionContextCode,
+                });
+            } catch {
+                logger.error({ tool: 'admin_testConnection', requestId }, 'Admin connection test log write failed');
+            }
+
+            reply.header('cache-control', 'no-store');
+            return { status: 'ok', durationMs: Date.now() - startedAt };
+        } catch (error: any) {
+            try {
+                await logService.record({
+                    instanceId: target?.instance.id,
+                    instanceName: target?.instance.name || instanceName,
+                    companyId: target?.company.id,
+                    companyName: target?.company.name || companyName,
+                    tool: 'admin_testConnection',
+                    status: 'error',
+                    durationMs: Date.now() - startedAt,
+                    requestId,
+                    executionContextCode: target?.company.executionContextCode,
+                    errorType: error?.name || 'Error',
+                    errorMessage: error?.message || 'Connection test failed.',
+                });
+            } catch {
+                logger.error({ tool: 'admin_testConnection', requestId }, 'Admin connection test failure log write failed');
+            }
+
+            logger.error({ tool: 'admin_testConnection', requestId, errorType: error?.name || 'Error' }, 'Admin connection test failed');
+            return reply.code(400).send({ error: 'Invalid request.' });
+        }
+    });
+
+    fastify.post('/admin/api/instances/:instanceName/secrets/:field/reveal', async (request, reply) => {
+        const body = request.body as { confirmAdminKey?: unknown } | undefined;
+        if (!hasValidAdminKey(body?.confirmAdminKey)) {
+            return reply.code(403).send({ error: 'Forbidden.' });
+        }
+        const field = (request.params as any).field;
+        if (field !== 'password' && field !== 'clientSecret') {
+            return reply.code(400).send({ error: 'Invalid request.' });
+        }
+        try {
+            const value = instanceRegistry.getSecret((request.params as any).instanceName, field);
+            reply.header('cache-control', 'no-store');
+            return { field, value };
+        } catch (error) {
+            return sendAdminError(reply, error);
+        }
+    });
+
+    fastify.get('/admin/api/logs', async (request, reply) => {
+        const { limit, status, ...filters } = request.query as Record<string, string | undefined>;
+        const parsedLimit = limit === undefined ? undefined : Number(limit);
+        if (parsedLimit !== undefined && (!Number.isInteger(parsedLimit) || parsedLimit < 1)) {
+            return reply.code(400).send({ error: 'Invalid request.' });
+        }
+        if (status && status !== 'success' && status !== 'error') {
+            return reply.code(400).send({ error: 'Invalid request.' });
+        }
+        reply.header('cache-control', 'no-store');
+        return logService.query({ ...filters, status: status as 'success' | 'error' | undefined, limit: parsedLimit });
+    });
+
+    fastify.get('/admin/api/logs/metrics', async (request, reply) => {
+        const { limit: _limit, status, ...filters } = request.query as Record<string, string | undefined>;
+        if (status && status !== 'success' && status !== 'error') {
+            return reply.code(400).send({ error: 'Invalid request.' });
+        }
+        reply.header('cache-control', 'no-store');
+        return logService.getMetrics({ ...filters, status: status as 'success' | 'error' | undefined });
+    });
+
+    fastify.get('/admin/api/logs/events', async (_request, reply) => {
+        reply.hijack();
+        const response = reply.raw;
+        response.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-store',
+            Connection: 'keep-alive',
+        });
+        response.write(': connected\n\n');
+        const unsubscribe = logService.subscribe(record => {
+            if (!response.destroyed) {
+                response.write(`data: ${JSON.stringify(record)}\n\n`);
+            }
+        });
+        const heartbeat = setInterval(() => {
+            if (!response.destroyed) response.write(': keepalive\n\n');
+        }, 30000);
+        response.on('close', () => {
+            clearInterval(heartbeat);
+            unsubscribe();
+        });
+    });
+
+    fastify.get('/admin/api/documentation', async (_request, reply) => {
+        try {
+            const documentation = await readFile(path.resolve(process.cwd(), 'README.md'), 'utf8');
+            return reply
+                .header('cache-control', 'no-store')
+                .type('text/markdown; charset=utf-8')
+                .send(documentation);
+        } catch {
+            return reply.code(404).send({ error: 'Documentation is unavailable.' });
+        }
+    });
+}
+
+const sendAdminNotFound = (reply: any) => reply.code(404).type('text/plain; charset=utf-8').send('Admin UI not found.');
+
+if (!adminUiAvailable) {
+    fastify.get('/admin', async (_request, reply) => sendAdminNotFound(reply));
+}
+
+fastify.get('/admin/*', async (request, reply) => {
+    const requestPath = (request.params as { '*': string })['*'] || '';
+    if (requestPath === 'api' || requestPath.startsWith('api/')) {
+        return reply.code(404).send({ error: 'Not found.' });
+    }
+    if (!adminUiAvailable) return sendAdminNotFound(reply);
+
+    const candidatePath = path.resolve(adminUiRoot, requestPath);
+    const relativePath = path.relative(adminUiRoot, candidatePath);
+    if (relativePath && !relativePath.startsWith(`..${path.sep}`) && relativePath !== '..') {
+        try {
+            if ((await stat(candidatePath)).isFile()) {
+                return reply.sendFile(requestPath);
+            }
+        } catch {
+            // A client-side route should receive the SPA entry point.
+        }
+    }
+    return reply.sendFile('index.html');
+});
 
 // --- SSE Transport (for HTTP/Web Clients) ---
 const activeTransports = new Map<string, SSEServerTransport>();
@@ -178,7 +479,7 @@ fastify.get('/mcp/sse', async (request, reply) => {
         });
 
         // Each SSE session gets its own MCP server instance
-        const sessionMcpServer = createMcpServer();
+        const sessionMcpServer = createMcpServer(bcClientFactory, logService);
         await sessionMcpServer.connect(transport);
         logger.info({ sessionId }, 'MCP Server SSE session connected');
     } catch (error: any) {
@@ -254,7 +555,7 @@ if (streamablePort) {
     // Separate server needs its own CORS and timeout config
     await streamableFastify.register(cors, {
         origin: corsOriginHandler,
-        methods: ['GET', 'POST', 'OPTIONS', 'DELETE'],
+        methods: ['GET', 'POST', 'PATCH', 'OPTIONS', 'DELETE'],
         allowedHeaders: [
             'Content-Type',
             'X-MCP-ClientId',
@@ -316,7 +617,7 @@ const startStdio = async () => {
     // However, it's safer to always try to connect it if it's not a terminal
     // or if the user explicitly wants it. For MCP servers, adding it doesn't hurt.
     try {
-        const stdioMcpServer = createMcpServer();
+        const stdioMcpServer = createMcpServer(bcClientFactory, logService);
         const stdioTransport = new StdioServerTransport();
         await stdioMcpServer.connect(stdioTransport);
         logger.info('MCP Server Stdio transport connected');
@@ -332,7 +633,7 @@ const start = async () => {
         startStdio();
 
         // Connect Streamable transport with its own MCP server instance
-        const streamableMcpServer = createMcpServer();
+        const streamableMcpServer = createMcpServer(bcClientFactory, logService);
         await streamableMcpServer.connect(streamableTransport);
         logger.info('MCP Server Streamable transport connected');
 

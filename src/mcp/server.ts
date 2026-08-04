@@ -3,8 +3,10 @@ import {
     CallToolRequestSchema,
     ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { bcClient } from '../bcClient.js';
+import { BcClientFactory } from '../instances/clientFactory.js';
 import { config } from '../config.js';
+import { LogService } from '../logging/logService.js';
+import { randomUUID } from 'node:crypto';
 import { pino } from 'pino';
 
 const logger = pino({
@@ -60,7 +62,32 @@ function stripJmxqComments(script: string): string {
     return cleanedLines.filter(line => line.trim().length > 0).join('\n');
 }
 
-export function createMcpServer() {
+const instanceSelectionProperties = {
+    bcInstance: { type: 'string', description: 'Configured Business Central instance name.' },
+    bcCompany: { type: 'string', description: 'Configured company name within the Business Central instance.' },
+};
+
+const createBcToolInputSchema = (properties: Record<string, unknown> = {}, required: string[] = []) => ({
+    type: 'object',
+    properties: {
+        ...instanceSelectionProperties,
+        ...properties,
+    },
+    required: ['bcInstance', 'bcCompany', ...required],
+});
+
+const bcToolNames = new Set([
+    'jmxq_getGrammar',
+    'jmxq_getExamples',
+    'jmxq_getReadmeApi',
+    'jmxq_listExecutionContexts',
+    'jmxq_describeExecutionContext',
+    'jmxq_describeTableFields',
+    'jmxq_searchTables',
+    'jmxq_executeScript',
+]);
+
+export function createMcpServer(clientFactory: BcClientFactory, logService: LogService) {
     const mcpServer = new Server(
         {
             name: 'jmxq-mcp-server',
@@ -83,118 +110,136 @@ export function createMcpServer() {
                     inputSchema: { type: 'object', properties: {} },
                 },
                 {
+                    name: 'jmxq_listInstances',
+                    description: 'Lists configured Business Central instances and companies available to this server.',
+                    inputSchema: { type: 'object', properties: {} },
+                },
+                {
                     name: 'jmxq_getGrammar',
                     description: 'Returns the JMX-QUERY grammar (EBNF).',
-                    inputSchema: { type: 'object', properties: {} },
+                    inputSchema: createBcToolInputSchema(),
                 },
                 {
                     name: 'jmxq_getExamples',
                     description: 'Returns JMX-QUERY script examples.',
-                    inputSchema: { type: 'object', properties: {} },
+                    inputSchema: createBcToolInputSchema(),
                 },
                 {
                     name: 'jmxq_getReadmeApi',
                     description: 'Returns the API-oriented README for JMX-QUERY.',
-                    inputSchema: { type: 'object', properties: {} },
+                    inputSchema: createBcToolInputSchema(),
                 },
                 {
                     name: 'jmxq_listExecutionContexts',
                     description: 'Lists all available execution contexts.',
-                    inputSchema: { type: 'object', properties: {} },
+                    inputSchema: createBcToolInputSchema(),
                 },
                 {
                     name: 'jmxq_describeExecutionContext',
                     description: 'Describes the execution context (tables, permissions).',
-                    inputSchema: {
-                        type: 'object',
-                        properties: {
-                            executionContextCode: { type: 'string', description: 'Context code (e.g. DEFAULT)' },
-                        },
-                    },
+                    inputSchema: createBcToolInputSchema({
+                        executionContextCode: { type: 'string', description: 'Optional context code. Defaults to the selected Company execution context.' },
+                    }),
                 },
                 {
                     name: 'jmxq_describeTableFields',
                     description: 'Describes fields and primary key of a specific table.',
-                    inputSchema: {
-                        type: 'object',
-                        properties: {
-                            executionContextCode: { type: 'string', description: 'Context code' },
-                            tableRef: { type: 'string', description: 'Table name or #ID (e.g. Customer, #18)' },
-                        },
-                        required: ['tableRef'],
-                    },
+                    inputSchema: createBcToolInputSchema({
+                        executionContextCode: { type: 'string', description: 'Optional context code. Defaults to the selected Company execution context.' },
+                        tableRef: { type: 'string', description: 'Table name or #ID (e.g. Customer, #18)' },
+                    }, ['tableRef']),
                 },
                 {
                     name: 'jmxq_searchTables',
                     description: 'Searches tables within an execution context by a search pattern, e.g. *cust*.',
-                    inputSchema: {
-                        type: 'object',
-                        properties: {
-                            executionContextCode: { type: 'string', description: 'Context code' },
-                            searchPattern: { type: 'string', description: 'Table search pattern with wildcards, e.g. *cust*' },
-                        },
-                        required: ['searchPattern'],
-                    },
+                    inputSchema: createBcToolInputSchema({
+                        executionContextCode: { type: 'string', description: 'Optional context code. Defaults to the selected Company execution context.' },
+                        searchPattern: { type: 'string', description: 'Table search pattern with wildcards, e.g. *cust*' },
+                    }, ['searchPattern']),
                 },
                 {
                     name: 'jmxq_executeScript',
                     description: 'Executes a single or multi-part JMX-QUERY script.',
-                    inputSchema: {
-                        type: 'object',
-                        properties: {
-                            executionContextCode: { type: 'string', description: 'Context code' },
-                            script: { type: 'string', description: 'The JMX-QUERY script to execute' },
-                        },
-                        required: ['script'],
-                    },
+                    inputSchema: createBcToolInputSchema({
+                        executionContextCode: { type: 'string', description: 'Optional context code. Defaults to the selected Company execution context.' },
+                        script: { type: 'string', description: 'The JMX-QUERY script to execute' },
+                    }, ['script']),
                 },
             ],
         };
     });
 
     mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
-        const { name, arguments: args } = request.params;
-        const ctx = (args?.executionContextCode as string) || config.JMXQ_EXECUTION_CONTEXT_CODE;
+        const { name } = request.params;
+        const args = (request.params.arguments || {}) as Record<string, unknown>;
+        const requestId = randomUUID();
+        const startedAt = Date.now();
+        const isBcTool = bcToolNames.has(name);
+        let target: ReturnType<BcClientFactory['resolve']> | undefined;
+        let executionContextCode: string | undefined;
 
-        logger.info({ tool: name, args }, 'Tool Call Received');
+        logger.info({ tool: name, requestId }, 'Tool Call Received');
 
         try {
+            const getRequiredString = (argumentName: string): string => {
+                const value = args[argumentName];
+                if (typeof value !== 'string' || !value.trim()) {
+                    throw new Error(`'${argumentName}' is required.`);
+                }
+                return value;
+            };
+            target = isBcTool
+                ? clientFactory.resolve(getRequiredString('bcInstance'), getRequiredString('bcCompany'))
+                : undefined;
+            executionContextCode = typeof args.executionContextCode === 'string' && args.executionContextCode.trim()
+                ? args.executionContextCode
+                : target?.company.executionContextCode;
+            const callBcAction = async (serviceName: string, actionName: string, payload: Record<string, unknown>) => {
+                if (!target) {
+                    throw new Error('A Business Central instance and company must be selected.');
+                }
+                return target.client.callAction(serviceName, actionName, target.company.company, payload);
+            };
+
             let result: any;
             switch (name) {
                 case 'jmxq_ping':
                     result = { status: 'ok', message: 'pong', timestamp: new Date().toISOString() };
                     break;
+                case 'jmxq_listInstances':
+                    result = clientFactory.listInstances();
+                    break;
                 case 'jmxq_getGrammar':
-                    result = await bcClient.callAction('JMXQ_ApiInfoService', 'GetGrammar', {});
+                    result = await callBcAction('JMXQ_ApiInfoService', 'GetGrammar', {});
                     break;
                 case 'jmxq_getExamples':
-                    result = await bcClient.callAction('JMXQ_ApiInfoService', 'GetExamples', {});
+                    result = await callBcAction('JMXQ_ApiInfoService', 'GetExamples', {});
                     break;
                 case 'jmxq_getReadmeApi':
-                    result = await bcClient.callAction('JMXQ_ApiInfoService', 'GetReadmeApi', {});
+                    result = await callBcAction('JMXQ_ApiInfoService', 'GetReadmeApi', {});
                     break;
                 case 'jmxq_listExecutionContexts':
-                    result = await bcClient.callAction('JMXQ_ApiInfoService', 'ListExecutionContexts', {});
+                    result = await callBcAction('JMXQ_ApiInfoService', 'ListExecutionContexts', {});
                     break;
                 case 'jmxq_describeExecutionContext':
-                    result = await bcClient.callAction('JMXQ_ApiInfoService', 'DescribeExecutionContext', { executionContextCode: ctx });
+                    result = await callBcAction('JMXQ_ApiInfoService', 'DescribeExecutionContext', { executionContextCode });
                     break;
                 case 'jmxq_describeTableFields':
-                    result = await bcClient.callAction('JMXQ_ApiInfoService', 'DescribeTableFields', {
-                        executionContextCode: ctx,
-                        tableRef: args?.tableRef
+                    result = await callBcAction('JMXQ_ApiInfoService', 'DescribeTableFields', {
+                        executionContextCode,
+                        tableRef: args.tableRef,
                     });
                     break;
                 case 'jmxq_searchTables':
-                    result = await bcClient.callAction('JMXQ_ApiInfoService', 'SearchTables', {
-                        executionContextCode: ctx,
-                        searchPattern: args?.searchPattern
+                    result = await callBcAction('JMXQ_ApiInfoService', 'SearchTables', {
+                        executionContextCode,
+                        searchPattern: args.searchPattern,
                     });
                     break;
                 case 'jmxq_executeScript':
-                    result = await bcClient.callAction('JMXQ_ApiService', 'ExecuteScript', {
-                        executionContextCode: ctx,
-                        script: stripJmxqComments(args?.script as string)
+                    result = await callBcAction('JMXQ_ApiService', 'ExecuteScript', {
+                        executionContextCode,
+                        script: stripJmxqComments(args.script as string),
                     });
                     break;
                 default:
@@ -202,13 +247,51 @@ export function createMcpServer() {
             }
 
             const resultText = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-            logger.info({ tool: name, resultLength: resultText.length }, 'Tool Call Success');
+            if (isBcTool) {
+                try {
+                    await logService.record({
+                        instanceId: target?.instance.id,
+                        instanceName: target?.instance.name,
+                        companyId: target?.company.id,
+                        companyName: target?.company.name,
+                        tool: name,
+                        status: 'success',
+                        durationMs: Date.now() - startedAt,
+                        requestId,
+                        executionContextCode,
+                        script: name === 'jmxq_executeScript' && typeof args.script === 'string' ? args.script : undefined,
+                    });
+                } catch {
+                    logger.error({ tool: name, requestId }, 'Tool log write failed');
+                }
+            }
+            logger.info({ tool: name, requestId, resultLength: resultText.length, durationMs: Date.now() - startedAt }, 'Tool Call Success');
 
             return {
                 content: [{ type: 'text', text: resultText }]
             };
         } catch (error: any) {
-            logger.error({ err: error, tool: name }, 'Tool Call Failed');
+            if (isBcTool) {
+                try {
+                    await logService.record({
+                        instanceId: target?.instance.id,
+                        instanceName: target?.instance.name,
+                        companyId: target?.company.id,
+                        companyName: target?.company.name,
+                        tool: name,
+                        status: 'error',
+                        durationMs: Date.now() - startedAt,
+                        requestId,
+                        executionContextCode,
+                        errorType: error?.name || 'Error',
+                        errorMessage: error?.message || 'Tool execution failed.',
+                        script: name === 'jmxq_executeScript' && typeof args.script === 'string' ? args.script : undefined,
+                    });
+                } catch {
+                    logger.error({ tool: name, requestId }, 'Tool failure log write failed');
+                }
+            }
+            logger.error({ tool: name, requestId, errorType: error?.name || 'Error' }, 'Tool Call Failed');
             return {
                 content: [{ type: 'text', text: `Error: ${error.message}` }],
                 isError: true,

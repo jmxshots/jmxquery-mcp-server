@@ -6,6 +6,7 @@ import { execSync } from 'child_process';
 import { NtlmClient } from 'node-client-ntlm';
 import { WindowsEventLogger } from './utils/eventLogger.js';
 import { getOAuthToken } from './utils/oauthProvider.js';
+import { BcInstanceConfig } from './instances/model.js';
 
 const logger = pino({
     level: config.LOG_LEVEL,
@@ -41,19 +42,30 @@ function toSafeLogPreview(input: string, maxLen = 240): string {
     return `${redacted.slice(0, maxLen)}...`;
 }
 
+const normalizeUrl = (url: string): string => url.endsWith('/') ? url : `${url}/`;
+
+export function resolveODataBaseUrl(instance: BcInstanceConfig): string {
+    if (instance.authType !== 'OAUTH') {
+        return normalizeUrl(instance.baseUrl);
+    }
+
+    return `https://api.businesscentral.dynamics.com/v2.0/${instance.tenantId}/${instance.environment}/ODataV4/`;
+}
+
 export class BcClient {
     private readonly baseUrl: string;
+    private readonly timeoutMs: number;
 
-    constructor() {
-        this.baseUrl = config.resolvedBaseUrl;
+    constructor(private readonly instance: BcInstanceConfig) {
+        this.baseUrl = resolveODataBaseUrl(instance);
+        this.timeoutMs = instance.timeoutMs;
     }
 
     private async requestTextWithTimeout(url: string, options: Parameters<typeof request>[1]) {
-        const timeoutMs = Number(config.HTTP_TIMEOUT_MS) || 60000;
         const controller = new AbortController();
         const timeoutHandle = setTimeout(() => {
-            controller.abort(new Error(`HTTP request timed out after ${timeoutMs}ms`));
-        }, timeoutMs);
+            controller.abort(new Error(`HTTP request timed out after ${this.timeoutMs}ms`));
+        }, this.timeoutMs);
 
         try {
             const { statusCode, body } = await request(url, {
@@ -68,21 +80,26 @@ export class BcClient {
     }
 
     private async withTimeout<T>(label: string, fn: () => Promise<T>): Promise<T> {
-        const timeoutMs = Number(config.HTTP_TIMEOUT_MS) || 60000;
-
-        return await Promise.race([
-            fn(),
-            new Promise<T>((_, reject) =>
-                setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs)
-            ),
-        ]);
+        let timeoutHandle: NodeJS.Timeout | undefined;
+        try {
+            return await Promise.race([
+                fn(),
+                new Promise<T>((_, reject) => {
+                    timeoutHandle = setTimeout(() => reject(new Error(`${label} timed out after ${this.timeoutMs}ms`)), this.timeoutMs);
+                }),
+            ]);
+        } finally {
+            if (timeoutHandle) {
+                clearTimeout(timeoutHandle);
+            }
+        }
     }
 
-    async callAction<T = any>(serviceName: string, actionName: string, payload: Record<string, any>): Promise<T> {
+    async callAction<T = any>(serviceName: string, actionName: string, company: string, payload: Record<string, any>): Promise<T> {
         const url = new URL(`${serviceName}_${actionName}`, this.baseUrl);
-        url.searchParams.append('company', config.BC_COMPANY);
+        url.searchParams.append('company', company);
 
-        logger.debug({ url: url.toString(), authType: config.BC_AUTH_TYPE }, 'Calling BC Action');
+        logger.debug({ url: url.toString(), authType: this.instance.authType }, 'Calling BC Action');
 
         const requestId = crypto.randomUUID();
         const startTime = Date.now();
@@ -91,15 +108,15 @@ export class BcClient {
             let responseBody: string;
             let statusCode: number = 200;
 
-            if (config.BC_AUTH_TYPE === 'SSO') {
+            if (this.instance.authType === 'SSO') {
                 // Use PowerShell bridge for Integrated Windows Auth (SSO)
                 responseBody = this.callViaPowerShell(url.toString(), payload, requestId);
-            } else if (config.BC_AUTH_TYPE === 'NTLM') {
+            } else if (this.instance.authType === 'NTLM') {
                 // Use node-client-ntlm for NTLM
                 // We use any here because the library types are unreliable/missing
                 const ntlmClient = new (NtlmClient as any)(
-                    config.BC_USERNAME || '',
-                    config.BC_PASSWORD || '',
+                    this.instance.username,
+                    this.instance.password,
                     '', // workstation
                     ''  // domain
                 );
@@ -117,9 +134,9 @@ export class BcClient {
                 );
                 statusCode = response.statusCode;
                 responseBody = response.body;
-            } else if (config.BC_AUTH_TYPE === 'OAUTH') {
+            } else if (this.instance.authType === 'OAUTH') {
                 // OAuth 2.0 Bearer token (SaaS / Business Central Online)
-                const token = await getOAuthToken();
+                const token = await getOAuthToken(this.instance);
                 const resp = await this.requestTextWithTimeout(url.toString(), {
                     method: 'POST',
                     headers: {
@@ -134,7 +151,7 @@ export class BcClient {
                 responseBody = resp.text;
             } else {
                 // Default: BASIC via undici
-                const credentials = Buffer.from(`${config.BC_USERNAME}:${config.BC_PASSWORD}`).toString('base64');
+                const credentials = Buffer.from(`${this.instance.username}:${this.instance.password}`).toString('base64');
                 const resp = await this.requestTextWithTimeout(url.toString(), {
                     method: 'POST',
                     headers: {
@@ -208,7 +225,7 @@ export class BcClient {
         try {
             const output = execSync(`powershell -NoProfile -NonInteractive -EncodedCommand ${base64Script}`, {
                 encoding: 'utf-8',
-                timeout: Number(config.HTTP_TIMEOUT_MS) || 60000,
+                timeout: this.timeoutMs,
                 maxBuffer: 10 * 1024 * 1024 // 10MB buffer for large responses
             });
             return output.trim();
@@ -266,5 +283,3 @@ export class BcClient {
         }
     }
 }
-
-export const bcClient = new BcClient();

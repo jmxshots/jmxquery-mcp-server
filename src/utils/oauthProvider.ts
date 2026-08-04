@@ -1,29 +1,41 @@
 import { ClientSecretCredential } from '@azure/identity';
-import { config } from '../config.js';
+import { BcInstanceConfig } from '../instances/model.js';
 
 const BC_OAUTH_SCOPE = 'https://api.businesscentral.dynamics.com/.default';
+type OAuthInstanceConfig = Extract<BcInstanceConfig, { authType: 'OAUTH' }>;
 
-let credential: ClientSecretCredential | null = null;
+const credentials = new Map<string, ClientSecretCredential>();
 
-function getCredential(): ClientSecretCredential {
+function getCredential(instance: OAuthInstanceConfig): ClientSecretCredential {
+    let credential = credentials.get(instance.id);
     if (!credential) {
         credential = new ClientSecretCredential(
-            config.BC_TENANT_ID!,
-            config.BC_CLIENT_ID!,
-            config.BC_CLIENT_SECRET!,
+            instance.tenantId,
+            instance.clientId,
+            instance.clientSecret,
         );
+        credentials.set(instance.id, credential);
     }
     return credential;
 }
 
 /**
- * Returns a valid Bearer token for Business Central SaaS.
+ * Returns a valid Bearer token for one Business Central SaaS instance.
  * @azure/identity handles caching and proactive refresh automatically.
  */
-export async function getOAuthToken(): Promise<string> {
-    const tokenResponse = await getCredential().getToken(BC_OAUTH_SCOPE);
+export async function getOAuthToken(instance: OAuthInstanceConfig): Promise<string> {
+    const tokenResponse = await getCredential(instance).getToken(BC_OAUTH_SCOPE);
     if (!tokenResponse?.token) {
         throw new Error('Failed to acquire OAuth token from Azure AD');
     }
     return tokenResponse.token;
+}
+
+export function invalidateOAuthToken(instanceId?: string): void {
+    if (instanceId) {
+        credentials.delete(instanceId);
+        return;
+    }
+
+    credentials.clear();
 }
