@@ -318,6 +318,23 @@ if (config.ADMIN_API_ENABLED) {
             });
         }
     });
+    fastify.get('/admin/api/instances/:instanceName/available-companies', async (request, reply) => {
+        const { instanceName } = request.params;
+        try {
+            const target = bcClientFactory.resolveEnabledInstance(instanceName);
+            const companies = await target.client.listCompanies();
+            reply.header('cache-control', 'no-store');
+            return companies;
+        }
+        catch (error) {
+            logger.error({ tool: 'admin_listAvailableCompanies', errorType: error?.name || 'Error' }, 'Admin company discovery failed');
+            return reply.code(400).send({
+                error: 'Company discovery failed.',
+                detail: error?.message || 'Unknown company discovery error.',
+                errorType: error?.name || 'Error',
+            });
+        }
+    });
     fastify.post('/admin/api/instances/:instanceName/companies', async (request, reply) => {
         try {
             const company = await instanceRegistry.createCompany(request.params.instanceName, request.body);

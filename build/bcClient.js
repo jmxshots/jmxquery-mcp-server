@@ -43,6 +43,15 @@ export function resolveODataBaseUrl(instance) {
     }
     return `https://api.businesscentral.dynamics.com/v2.0/${instance.tenantId}/${instance.environment}/ODataV4/`;
 }
+function resolveCompaniesApiUrl(instance) {
+    const url = new URL(resolveODataBaseUrl(instance));
+    const apiPath = url.pathname.replace(/\/ODataV4\/?$/i, '/api/v2.0/companies');
+    if (apiPath === url.pathname) {
+        throw new Error('The configured OData URL must end with ODataV4 to load companies.');
+    }
+    url.pathname = apiPath;
+    return url.toString();
+}
 export class BcClient {
     instance;
     baseUrl;
@@ -134,6 +143,69 @@ export class BcClient {
             }, 'BC connection test failed');
             const detail = error instanceof Error ? error.message : 'Unknown connection error.';
             throw new Error(`Business Central connection test failed: ${detail}`);
+        }
+    }
+    async listCompanies() {
+        const requestId = crypto.randomUUID();
+        const url = resolveCompaniesApiUrl(this.instance);
+        let responseBody;
+        let statusCode;
+        try {
+            if (this.instance.authType === 'SSO') {
+                responseBody = this.getViaPowerShell(url, requestId);
+                statusCode = 200;
+            }
+            else if (this.instance.authType === 'NTLM') {
+                const ntlmClient = new NtlmClient(this.instance.username, this.instance.password, '', '');
+                const response = await this.withTimeout('BC company discovery', async () => await ntlmClient.request({
+                    url,
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-Request-ID': requestId,
+                    },
+                }));
+                statusCode = response.statusCode;
+                responseBody = response.body;
+            }
+            else {
+                const headers = {
+                    'Accept': 'application/json',
+                    'X-Request-ID': requestId,
+                };
+                if (this.instance.authType === 'OAUTH') {
+                    headers.Authorization = `Bearer ${await getOAuthToken(this.instance)}`;
+                }
+                else {
+                    const credentials = Buffer.from(`${this.instance.username}:${this.instance.password}`).toString('base64');
+                    headers.Authorization = `Basic ${credentials}`;
+                }
+                const response = await this.requestTextWithTimeout(url, {
+                    method: 'GET',
+                    headers,
+                });
+                statusCode = response.statusCode;
+                responseBody = response.text;
+            }
+            if (statusCode >= 400) {
+                throw new Error(`Business Central company discovery failed with HTTP ${statusCode}.`);
+            }
+            const response = JSON.parse(responseBody);
+            const values = Array.isArray(response.value) ? response.value : [];
+            return values
+                .filter((company) => Boolean(company) && typeof company === 'object' && typeof company.name === 'string')
+                .map(company => ({
+                name: String(company.name).trim(),
+                ...(typeof company.displayName === 'string' && company.displayName.trim()
+                    ? { displayName: company.displayName.trim() }
+                    : {}),
+            }))
+                .filter(company => company.name.length > 0);
+        }
+        catch (error) {
+            logger.error({ requestId, errorName: error?.name }, 'BC company discovery failed');
+            const detail = error instanceof Error ? error.message : 'Unknown company discovery error.';
+            throw new Error(`Business Central company discovery failed: ${detail}`);
         }
     }
     async callAction(serviceName, actionName, company, payload) {
@@ -325,6 +397,27 @@ export class BcClient {
         }
         catch (error) {
             throw new Error('Business Central SSO connection test failed.');
+        }
+    }
+    getViaPowerShell(url, requestId) {
+        const escapedUrl = url.replace(/'/g, "''");
+        const psScript = `
+            $ProgressPreference = 'SilentlyContinue';
+            [Console]::OutputEncoding = [System.Text.Encoding]::UTF8;
+            $headers = @{ "Accept" = "application/json"; "X-Request-ID" = "${requestId}" };
+            $response = Invoke-RestMethod -Uri '${escapedUrl}' -Method Get -UseDefaultCredentials -UseBasicParsing -Headers $headers -ErrorAction Stop;
+            $response | ConvertTo-Json -Depth 10 -Compress;
+        `.trim();
+        const base64Script = Buffer.from(psScript, 'utf16le').toString('base64');
+        try {
+            return execSync(`powershell -NoProfile -NonInteractive -EncodedCommand ${base64Script}`, {
+                encoding: 'utf-8',
+                timeout: this.timeoutMs,
+                maxBuffer: 10 * 1024 * 1024,
+            }).trim();
+        }
+        catch {
+            throw new Error('Business Central SSO company discovery failed.');
         }
     }
 }

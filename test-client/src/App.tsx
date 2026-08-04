@@ -97,6 +97,10 @@ interface CompanyFormData {
   executionContextCode: string;
   enabled: boolean;
 }
+interface AvailableCompany {
+  name: string;
+  displayName?: string;
+}
 interface ConnectionTestResponse {
   status: "ok";
   durationMs: number;
@@ -558,6 +562,10 @@ function InstancesView({
   );
   const [companyForm, setCompanyForm] = useState<CompanyFormData | null>(null);
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
+  const [availableCompanies, setAvailableCompanies] = useState<AvailableCompany[]>([]);
+  const [loadingAvailableCompanies, setLoadingAvailableCompanies] = useState(false);
+  const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
+  const [availableCompanySelection, setAvailableCompanySelection] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [revealed, setRevealed] = useState<
@@ -696,6 +704,43 @@ function InstancesView({
         });
       }
     });
+  };
+  const loadAvailableCompanies = () => {
+    if (!selected) return;
+    setLoadingAvailableCompanies(true);
+    setError("");
+    void request<AvailableCompany[]>(
+      `/instances/${encodeURIComponent(selected.name)}/available-companies`,
+    )
+      .then((companies) => {
+        setAvailableCompanies(companies);
+      })
+      .catch((caught) => {
+        setError(
+          caught instanceof Error ? caught.message : "Unable to load companies.",
+        );
+      })
+      .finally(() => setLoadingAvailableCompanies(false));
+  };
+  const openCompanyPicker = () => {
+    setCompanyPickerOpen(true);
+    setAvailableCompanySelection("");
+    setAvailableCompanies([]);
+    loadAvailableCompanies();
+  };
+  const useSelectedAvailableCompany = () => {
+    const company = availableCompanies.find(
+      (candidate) => candidate.name === availableCompanySelection,
+    );
+    if (!company) return;
+    setCompanyForm({
+      ...emptyCompanyForm(),
+      name: company.displayName || company.name,
+      company: company.name,
+    });
+    setEditingCompany(null);
+    setCompanyPickerOpen(false);
+    setAvailableCompanySelection("");
   };
   const testInstanceConnection = (instanceName: string) => {
     void perform(async () => {
@@ -934,14 +979,16 @@ function InstancesView({
                 <button
                   className="secondary-button"
                   type="button"
-                  title="Add a Company target to this instance"
+                  disabled={busy || !selected.enabled}
+                  title={selected.enabled
+                    ? "Load the available companies from the configured OData service"
+                    : "Enable the instance before loading companies"}
                   onClick={() => {
-                    setCompanyForm(emptyCompanyForm());
-                    setEditingCompany(null);
+                    openCompanyPicker();
                   }}
                 >
                   <Plus size={16} aria-hidden="true" />
-                  New company
+                  Add company
                 </button>
               </div>
               {companyForm ? (
@@ -1093,6 +1140,67 @@ function InstancesView({
           )}
         </section>
       </div>
+      {companyPickerOpen && selected && (
+        <Modal
+          title="Select Business Central company"
+          onClose={() => {
+            setCompanyPickerOpen(false);
+            setAvailableCompanySelection("");
+          }}
+        >
+          <label>
+            Business Central company
+            <select
+              value={availableCompanySelection}
+              disabled={loadingAvailableCompanies}
+              title="Companies available from the configured OData service"
+              onChange={(event) =>
+                setAvailableCompanySelection(event.target.value)
+              }
+            >
+              <option value="">
+                {loadingAvailableCompanies
+                  ? "Loading companies..."
+                  : availableCompanies.length
+                    ? "Select a company"
+                    : "No companies available"}
+              </option>
+              {availableCompanies.map((company) => (
+                <option key={company.name} value={company.name}>
+                  {company.displayName && company.displayName !== company.name
+                    ? `${company.displayName} (${company.name})`
+                    : company.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="modal-actions">
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={loadingAvailableCompanies}
+              title="Reload companies from Business Central"
+              onClick={loadAvailableCompanies}
+            >
+              <RefreshCw
+                size={16}
+                className={loadingAvailableCompanies ? "spinning" : ""}
+                aria-hidden="true"
+              />
+              Reload
+            </button>
+            <button
+              className="primary-button"
+              type="button"
+              disabled={!availableCompanySelection || loadingAvailableCompanies}
+              title="Use the selected company"
+              onClick={useSelectedAvailableCompany}
+            >
+              Use company
+            </button>
+          </div>
+        </Modal>
+      )}
       {revealPrompt && (
         <Modal
           title={`Reveal ${revealPrompt === "password" ? "password" : "client secret"}`}
