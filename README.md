@@ -151,6 +151,14 @@ A disabled Company blocks only that Company. It does not affect other Companies 
 
 Stored Passwords and Client Secrets are masked in normal responses. Use the reveal icon only when needed. The GUI asks for the Admin API key again, reveals a single secret for 30 seconds, and does not persist it in browser storage.
 
+### Tool Tester
+
+The **Tools** view runs the registered JMX-QUERY MCP tools through the authenticated Admin API. Select a tool and, for Business Central tools, select an enabled Instance and Company. The server uses the same target resolution, execution-context handling, comment stripping, and audit logging as an MCP client call.
+
+Use **Get examples** to retrieve the JMX-QUERY examples published by the selected Business Central system. This is the source for version-specific scripts, including a read-only article-count example when one is available.
+
+`jmxq_executeScript` requires a confirmation immediately before execution because a script can change Business Central data. The entered script remains available after a failed call. The result panel displays the server request ID, duration, effective execution context, and full tool response.
+
 ### Logs
 
 The **Logs** view supports filters for Instance, Company, Tool, Status, Request ID, and time range. It displays counts, error totals, and average durations. Use **Refresh** to retrieve new records.

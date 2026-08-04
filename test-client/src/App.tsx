@@ -11,24 +11,27 @@ import rehypeSlug from "rehype-slug";
 import {
   BookOpen,
   Building2,
+  Copy,
   Eye,
   FileText,
   KeyRound,
   LogOut,
   Moon,
   Pencil,
+  Play,
   Plus,
   RefreshCw,
   Server,
   ShieldCheck,
   Sun,
+  Terminal,
   Trash2,
   WandSparkles,
   X,
 } from "lucide-react";
 import "./App.css";
 
-type View = "instances" | "logs" | "documentation";
+type View = "instances" | "tools" | "logs" | "documentation";
 type Theme = "light" | "dark";
 type AuthType = "BASIC" | "NTLM" | "SSO" | "OAUTH";
 type SecretField = "password" | "clientSecret";
@@ -73,6 +76,18 @@ interface Metrics {
   success: number;
   error: number;
   averageDurationMs: number;
+}
+interface ToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+interface ToolExecutionResult {
+  content: Array<{ type: "text"; text: string }>;
+  isError?: boolean;
+  requestId: string;
+  durationMs: number;
+  executionContextCode?: string;
 }
 interface Session {
   serverUrl: string;
@@ -187,6 +202,10 @@ const baseUrlExamples: Record<Exclude<AuthType, "OAUTH">, string> = {
 };
 const getBaseUrlExample = (authType: AuthType) =>
   authType === "OAUTH" ? "" : baseUrlExamples[authType];
+const articleCountScript = [
+  "FROM Item AS i",
+  "| SELECT COUNT(*) AS ArticleCount",
+].join("\n");
 const instanceToForm = (instance: Instance): InstanceFormData => ({
   name: instance.name,
   description: instance.description,
@@ -375,6 +394,12 @@ function App() {
             onClick={() => setView("instances")}
           />
           <NavigationButton
+            active={view === "tools"}
+            icon={<Terminal size={18} />}
+            label="Tools"
+            onClick={() => setView("tools")}
+          />
+          <NavigationButton
             active={view === "logs"}
             icon={<FileText size={18} />}
             label="Logs"
@@ -416,6 +441,9 @@ function App() {
             reload={loadInstances}
             request={request}
           />
+        )}
+        {view === "tools" && (
+          <ToolsView instances={instances} request={request} />
         )}
         {view === "logs" && <LogsView request={request} />}
         {view === "documentation" && <DocumentationView request={request} />}
@@ -1631,6 +1659,398 @@ function CompanyForm({
         </button>
       </div>
     </form>
+  );
+}
+
+function ToolsView({
+  instances,
+  request,
+}: {
+  instances: Instance[];
+  request: <T>(path: string, options?: RequestInit) => Promise<T>;
+}) {
+  const [tools, setTools] = useState<ToolDefinition[]>([]);
+  const [selectedToolName, setSelectedToolName] = useState("");
+  const [selectedInstanceName, setSelectedInstanceName] = useState("");
+  const [selectedCompanyName, setSelectedCompanyName] = useState("");
+  const [executionContextCode, setExecutionContextCode] = useState("");
+  const [tableRef, setTableRef] = useState("");
+  const [searchPattern, setSearchPattern] = useState("");
+  const [script, setScript] = useState("");
+  const [selectedScriptTemplate, setSelectedScriptTemplate] = useState("");
+  const [result, setResult] = useState<ToolExecutionResult | null>(null);
+  const [error, setError] = useState("");
+  const [loadingTools, setLoadingTools] = useState(true);
+  const [running, setRunning] = useState(false);
+  const [confirmExecution, setConfirmExecution] = useState(false);
+  const selectedTool = tools.find((tool) => tool.name === selectedToolName);
+  const selectedInstance = instances.find(
+    (instance) => instance.name === selectedInstanceName,
+  );
+  const enabledCompanies = (selectedInstance?.companies || []).filter(
+    (company) => company.enabled,
+  );
+  const selectedCompany = enabledCompanies.find(
+    (company) => company.name === selectedCompanyName,
+  );
+  const requiresTarget = (tool: ToolDefinition | undefined) => {
+    const required = tool?.inputSchema.required;
+    return Array.isArray(required) && required.includes("bcInstance");
+  };
+
+  useEffect(() => {
+    setLoadingTools(true);
+    void request<ToolDefinition[]>("/tools")
+      .then((loadedTools) => {
+        setTools(loadedTools);
+        setSelectedToolName((current) =>
+          loadedTools.some((tool) => tool.name === current)
+            ? current
+            : (loadedTools[0]?.name || ""),
+        );
+      })
+      .catch((caught) =>
+        setError(
+          caught instanceof Error ? caught.message : "Unable to load tools.",
+        ),
+      )
+      .finally(() => setLoadingTools(false));
+  }, [request]);
+
+  useEffect(() => {
+    if (instances.some((instance) => instance.name === selectedInstanceName)) {
+      return;
+    }
+    setSelectedInstanceName(
+      instances.find((instance) => instance.enabled)?.name || "",
+    );
+  }, [instances, selectedInstanceName]);
+
+  useEffect(() => {
+    if (enabledCompanies.some((company) => company.name === selectedCompanyName)) {
+      return;
+    }
+    setSelectedCompanyName(enabledCompanies[0]?.name || "");
+  }, [enabledCompanies, selectedCompanyName]);
+
+  useEffect(() => {
+    if (selectedCompany) {
+      setExecutionContextCode(selectedCompany.executionContextCode);
+    }
+  }, [selectedCompany?.executionContextCode, selectedCompanyName]);
+
+  const runTool = async (toolName = selectedToolName) => {
+    const tool = tools.find((candidate) => candidate.name === toolName);
+    if (!tool) return;
+    const targetRequired = requiresTarget(tool);
+    if (targetRequired && (!selectedInstanceName || !selectedCompanyName)) {
+      setError("Select an enabled Instance and Company before running this tool.");
+      return;
+    }
+
+    const args: Record<string, string> = {};
+    if (targetRequired) {
+      args.bcInstance = selectedInstanceName;
+      args.bcCompany = selectedCompanyName;
+      if (executionContextCode.trim()) {
+        args.executionContextCode = executionContextCode.trim();
+      }
+    }
+    if (toolName === "jmxq_describeTableFields") args.tableRef = tableRef;
+    if (toolName === "jmxq_searchTables") args.searchPattern = searchPattern;
+    if (toolName === "jmxq_executeScript") args.script = script;
+
+    setRunning(true);
+    setError("");
+    setResult(null);
+    try {
+      setResult(
+        await request<ToolExecutionResult>("/tools/call", {
+          method: "POST",
+          body: JSON.stringify({ name: toolName, arguments: args }),
+        }),
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Tool execution failed.",
+      );
+    } finally {
+      setRunning(false);
+      setConfirmExecution(false);
+    }
+  };
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (selectedToolName === "jmxq_executeScript") {
+      setConfirmExecution(true);
+      return;
+    }
+    void runTool();
+  };
+  const resultText = result?.content.map((item) => item.text).join("\n") || "";
+
+  return (
+    <div className="view-layout">
+      <header className="view-header">
+        <div>
+          <p className="eyebrow">MCP simulation</p>
+          <h1>Tools</h1>
+        </div>
+        <button
+          className="secondary-button"
+          type="button"
+          disabled={running || !selectedInstanceName || !selectedCompanyName}
+          title="Load JMX-QUERY examples from the selected Business Central company"
+          onClick={() => {
+            setSelectedToolName("jmxq_getExamples");
+            void runTool("jmxq_getExamples");
+          }}
+        >
+          <BookOpen size={17} aria-hidden="true" />
+          Get examples
+        </button>
+      </header>
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="tools-grid">
+        <form className="tool-request-panel" onSubmit={submit}>
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">Request</p>
+              <h2>Run MCP tool</h2>
+            </div>
+            {loadingTools && <RefreshCw className="spinning" size={18} />}
+          </div>
+          <div className="form-grid">
+            <label className="wide">
+              Tool
+              <select
+                value={selectedToolName}
+                title="Select an MCP tool to execute"
+                onChange={(event) => setSelectedToolName(event.target.value)}
+                disabled={loadingTools || running}
+              >
+                {tools.map((tool) => (
+                  <option key={tool.name} value={tool.name}>
+                    {tool.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {selectedTool && (
+              <p className="tool-description wide">{selectedTool.description}</p>
+            )}
+            {requiresTarget(selectedTool) && (
+              <>
+                <label>
+                  Instance
+                  <select
+                    value={selectedInstanceName}
+                    title="Business Central Instance used for this tool call"
+                    onChange={(event) => setSelectedInstanceName(event.target.value)}
+                    disabled={running}
+                    required
+                  >
+                    <option value="">Select Instance</option>
+                    {instances.map((instance) => (
+                      <option
+                        key={instance.id}
+                        value={instance.name}
+                        disabled={!instance.enabled}
+                      >
+                        {instance.name}{instance.enabled ? "" : " (disabled)"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Company
+                  <select
+                    value={selectedCompanyName}
+                    title="Business Central Company used for this tool call"
+                    onChange={(event) => setSelectedCompanyName(event.target.value)}
+                    disabled={running || !selectedInstanceName}
+                    required
+                  >
+                    <option value="">Select Company</option>
+                    {enabledCompanies.map((company) => (
+                      <option key={company.id} value={company.name}>
+                        {company.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="wide">
+                  Execution context
+                  <input
+                    value={executionContextCode}
+                    title="Optional execution context; defaults to the selected Company's configuration"
+                    onChange={(event) => setExecutionContextCode(event.target.value)}
+                    disabled={running}
+                    placeholder={selectedCompany?.executionContextCode || "Default context"}
+                  />
+                </label>
+              </>
+            )}
+            {selectedToolName === "jmxq_describeTableFields" && (
+              <label className="wide">
+                Table reference
+                <input
+                  value={tableRef}
+                  title="Table name or numeric reference, such as Customer or #18"
+                  onChange={(event) => setTableRef(event.target.value)}
+                  disabled={running}
+                  required
+                />
+              </label>
+            )}
+            {selectedToolName === "jmxq_searchTables" && (
+              <label className="wide">
+                Search pattern
+                <input
+                  value={searchPattern}
+                  title="Table name search pattern with wildcards"
+                  onChange={(event) => setSearchPattern(event.target.value)}
+                  disabled={running}
+                  placeholder="*customer*"
+                  required
+                />
+              </label>
+            )}
+            {selectedToolName === "jmxq_executeScript" && (
+              <>
+                <label className="wide">
+                  Test script
+                  <select
+                    value={selectedScriptTemplate}
+                    title="Select a read-only JMX-QUERY test script"
+                    onChange={(event) => {
+                      const template = event.target.value;
+                      setSelectedScriptTemplate(template);
+                      if (template === "article-count") {
+                        setScript(articleCountScript);
+                      }
+                    }}
+                    disabled={running}
+                  >
+                    <option value="">Custom script</option>
+                    <option value="article-count">Article count (read-only)</option>
+                  </select>
+                </label>
+                <label className="wide">
+                  JMX-QUERY script
+                  <textarea
+                    value={script}
+                    title="JMX-QUERY script sent to the selected Business Central Company"
+                    onChange={(event) => {
+                      setScript(event.target.value);
+                      setSelectedScriptTemplate("");
+                    }}
+                    disabled={running}
+                    required
+                  />
+                </label>
+              </>
+            )}
+          </div>
+          <div className="form-actions">
+            <button
+              className="primary-button"
+              type="submit"
+              disabled={!selectedTool || running}
+              title="Run the selected MCP tool through the Admin API"
+            >
+              <Play size={17} aria-hidden="true" />
+              {running ? "Running" : "Run tool"}
+            </button>
+          </div>
+        </form>
+        <section className="tool-result-panel" aria-live="polite">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">Response</p>
+              <h2>{result ? (result.isError ? "Tool error" : "Tool result") : "Awaiting request"}</h2>
+            </div>
+            {result && (
+              <button
+                className="icon-button"
+                type="button"
+                title="Copy response to clipboard"
+                aria-label="Copy response to clipboard"
+                onClick={() =>
+                  void navigator.clipboard.writeText(resultText).catch(() =>
+                    setError("Unable to copy the response to the clipboard."),
+                  )
+                }
+              >
+                <Copy size={17} />
+              </button>
+            )}
+          </div>
+          {result ? (
+            <>
+              <dl className="definition-grid tool-result-details">
+                <dt>Status</dt>
+                <dd>
+                  <span className={`status-pill ${result.isError ? "error" : "success"}`}>
+                    {result.isError ? "error" : "success"}
+                  </span>
+                </dd>
+                <dt>Duration</dt>
+                <dd>{result.durationMs.toLocaleString()} ms</dd>
+                <dt>Request ID</dt>
+                <dd>{result.requestId}</dd>
+                {result.executionContextCode && (
+                  <>
+                    <dt>Execution context</dt>
+                    <dd>{result.executionContextCode}</dd>
+                  </>
+                )}
+              </dl>
+              <pre className="tool-response"><code>{resultText}</code></pre>
+            </>
+          ) : (
+            <p className="empty-state">Select a tool and run it to inspect its response.</p>
+          )}
+        </section>
+      </div>
+      {confirmExecution && (
+        <Modal
+          title="Run JMX-QUERY script"
+          onClose={() => setConfirmExecution(false)}
+        >
+          <p>
+            This script is sent to Business Central and can change data. Review
+            the selected Instance, Company, execution context, and script before continuing.
+          </p>
+          <pre><code>{script}</code></pre>
+          <div className="modal-actions">
+            <button
+              className="secondary-button"
+              type="button"
+              title="Cancel script execution"
+              onClick={() => setConfirmExecution(false)}
+            >
+              Cancel
+            </button>
+            <button
+              className="primary-button"
+              type="button"
+              disabled={running}
+              title="Confirm and run the script against Business Central"
+              onClick={() => void runTool()}
+            >
+              <Play size={17} aria-hidden="true" />
+              Run script
+            </button>
+          </div>
+        </Modal>
+      )}
+    </div>
   );
 }
 

@@ -14,6 +14,7 @@ import { WindowsEventLogger } from './utils/eventLogger.js';
 import { BcClientFactory } from './instances/clientFactory.js';
 import { EncryptedInstanceRegistry } from './instances/registry.js';
 import { LogService } from './logging/logService.js';
+import { executeTool, isRegisteredTool, toolDefinitions } from './mcp/tools.js';
 
 if (config.ADMIN_API_ENABLED && !config.ADMIN_API_KEY?.trim()) {
     throw new Error('ADMIN_API_KEY must be configured when ADMIN_API_ENABLED is true.');
@@ -265,6 +266,26 @@ if (config.ADMIN_API_ENABLED) {
     fastify.get('/admin/api/instances', async (_request, reply) => {
         reply.header('cache-control', 'no-store');
         return instanceRegistry.listPublicInstances();
+    });
+
+    fastify.get('/admin/api/tools', async (_request, reply) => {
+        reply.header('cache-control', 'no-store');
+        return toolDefinitions;
+    });
+
+    fastify.post('/admin/api/tools/call', async (request, reply) => {
+        const body = request.body;
+        if (!body || typeof body !== 'object' || Array.isArray(body)) {
+            return reply.code(400).send({ error: 'Invalid request.' });
+        }
+        const { name, arguments: args } = body as { name?: unknown; arguments?: unknown };
+        if (typeof name !== 'string' || !isRegisteredTool(name) || !args || typeof args !== 'object' || Array.isArray(args)) {
+            return reply.code(400).send({ error: 'Invalid request.' });
+        }
+
+        const result = await executeTool(name, args as Record<string, unknown>, bcClientFactory, logService);
+        reply.header('cache-control', 'no-store');
+        return result;
     });
 
     fastify.post('/admin/api/instances', async (request, reply) => {
