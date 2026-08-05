@@ -20,6 +20,7 @@ The terms are deliberate: `tenantId` is only an Entra ID OAuth tenant identifier
 - Network access from the service machine to each Business Central OData endpoint or Business Central Online.
 - Administrator rights only when installing or removing the Windows service.
 - A Business Central user, application, or service account with the required JMX-QUERY permissions.
+- The [JMX-QUERY Business Central app](https://github.com/jmxshots/AL-JMX.QUERY) installed in every target Business Central instance.
 
 For SSO, the Windows account running the service must be an authorized Business Central user. `LocalSystem` usually cannot authenticate to a remote Business Central server with Integrated Windows Authentication.
 
