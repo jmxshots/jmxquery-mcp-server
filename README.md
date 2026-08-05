@@ -34,15 +34,15 @@ For SSO, the Windows account running the service must be an authorized Business 
 
 2. Open an elevated PowerShell in the repository and run the bootstrap.
 
-   ```powershell
-  npm run bootstrap
-   ```
+```powershell
+npm run bootstrap
+```
 
-  The bootstrap installs dependencies, creates a missing `.env` with three distinct 96-character secrets, builds the server and Admin GUI, then installs and starts **JMX-QUERY MCP Server**. It never displays generated secrets.
+The bootstrap installs dependencies, creates a missing `.env` with three distinct 96-character secrets, builds the server and Admin GUI, then installs and starts **JMX-QUERY MCP Server**. It never displays generated secrets.
 
-  An existing `.env` is never overwritten. The bootstrap validates it before building; if it still contains template placeholders, has a master key shorter than 32 characters, or enables the Admin API without an Admin key, it stops and leaves the file unchanged.
+An existing `.env` is never overwritten. The bootstrap validates it before building; if it still contains template placeholders, has a master key shorter than 32 characters, or enables the Admin API without an Admin key, it stops and leaves the file unchanged.
 
-3. Open `http://127.0.0.1:5000/admin`, enter the generated or existing Admin API key, and create your first Instance and Company. Business Central endpoints, credentials, Companies, and execution contexts are configured only in the protected Admin GUI.
+3. Open the Admin GUI at the configured address, initially `http://127.0.0.1:5000/admin`, and enter the `ADMIN_API_KEY` from `.env`. Then create your first Instance and Company. Business Central endpoints, credentials, Companies, and execution contexts are configured only in the protected Admin GUI.
 
 ### Manual or Recovery Installation
 
