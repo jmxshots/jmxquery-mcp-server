@@ -40,6 +40,7 @@ type AuthType = "BASIC" | "NTLM" | "SSO" | "OAUTH";
 type SecretField = "password" | "clientSecret";
 type LogTimeRange = "all" | "5m" | "10m" | "1h" | "6h" | "24h" | "3d" | "custom";
 type ConnectionLocation = "local" | "lan";
+type Harness = "vscode" | "cursor" | "claudeDesktop";
 interface Company {
   id: string;
   name: string;
@@ -111,6 +112,8 @@ interface McpConnectionInfo {
   apiKeyRequired: boolean;
   hostname: string;
   lanAddresses: string[];
+  workingDirectory?: string;
+  nodePath?: string;
 }
 interface InstanceFormData {
   name: string;
@@ -2931,7 +2934,7 @@ function ConnectionGuideView({
 }) {
   const [connectionInfo, setConnectionInfo] = useState<McpConnectionInfo | null>(null);
   const [location, setLocation] = useState<ConnectionLocation>("local");
-  const [harness, setHarness] = useState("vscode");
+  const [harness, setHarness] = useState<Harness>("vscode");
   const [lanHostname, setLanHostname] = useState("");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
@@ -2987,29 +2990,58 @@ function ConnectionGuideView({
       : lanHostnameIsValid
         ? toConnectionEndpoint(selectedLanHostname, sessionAddress.protocol, streamablePort)
         : null;
-  const configuration = endpoint
-    ? JSON.stringify({
-      ...(connectionInfo?.apiKeyRequired
-        ? {
-          inputs: [{
-            id: "jmx-query-api-key",
-            type: "promptString",
-            description: "JMX-QUERY MCP API key",
-            password: true,
-          }],
-        }
-        : {}),
-      servers: {
-        "jmx-query": {
-          type: "http",
-          url: endpoint,
-          ...(connectionInfo?.apiKeyRequired
-            ? { headers: { Authorization: "Bearer ${input:jmx-query-api-key}" } }
-            : {}),
+  const isClaudeDesktop = harness === "claudeDesktop";
+  const configuration = isClaudeDesktop
+    ? connectionInfo?.workingDirectory && connectionInfo.nodePath
+      ? JSON.stringify({
+        mcpServers: {
+          "jmx-query": {
+            command: connectionInfo.nodePath,
+            args: ["build/index.js"],
+            cwd: connectionInfo.workingDirectory,
+            env: { JMXQ_STDIO_ONLY: "true" },
+          },
         },
-      },
-    }, null, 2)
-    : "";
+      }, null, 2)
+      : ""
+    : endpoint
+      ? JSON.stringify(
+        harness === "vscode"
+        ? {
+          ...(connectionInfo?.apiKeyRequired
+            ? {
+              inputs: [{
+                id: "jmx-query-api-key",
+                type: "promptString",
+                description: "JMX-QUERY MCP API key",
+                password: true,
+              }],
+            }
+            : {}),
+          servers: {
+            "jmx-query": {
+              type: "http",
+              url: endpoint,
+              ...(connectionInfo?.apiKeyRequired
+                ? { headers: { Authorization: "Bearer ${input:jmx-query-api-key}" } }
+                : {}),
+            },
+          },
+        }
+        : {
+          mcpServers: {
+            "jmx-query": {
+              url: endpoint,
+              ...(connectionInfo?.apiKeyRequired
+                ? { headers: { Authorization: "Bearer <JMXQ_MCPAPI_KEY>" } }
+                : {}),
+            },
+          },
+        },
+        null,
+        2,
+      )
+      : "";
   const copyConfiguration = () => {
     if (!configuration) return;
     void navigator.clipboard.writeText(configuration)
@@ -3033,34 +3065,38 @@ function ConnectionGuideView({
         <div className="connection-controls">
           <label>
             Harness
-            <select value={harness} onChange={(event) => setHarness(event.target.value)}>
+            <select value={harness} onChange={(event) => setHarness(event.target.value as Harness)}>
               <option value="vscode">VS Code / GitHub Copilot</option>
+              <option value="cursor">Cursor</option>
+              <option value="claudeDesktop">Claude Desktop</option>
             </select>
           </label>
-          <fieldset className="location-control">
-            <legend>Connect from</legend>
-            <div className="segmented-control">
-              <button
-                type="button"
-                className={location === "local" ? "selected" : ""}
-                aria-pressed={location === "local"}
-                onClick={() => setLocation("local")}
-              >
-                This MCP server
-              </button>
-              <button
-                type="button"
-                className={location === "lan" ? "selected" : ""}
-                aria-pressed={location === "lan"}
-                onClick={() => setLocation("lan")}
-              >
-                Local network
-              </button>
-            </div>
-          </fieldset>
+          {!isClaudeDesktop && (
+            <fieldset className="location-control">
+              <legend>Connect from</legend>
+              <div className="segmented-control">
+                <button
+                  type="button"
+                  className={location === "local" ? "selected" : ""}
+                  aria-pressed={location === "local"}
+                  onClick={() => setLocation("local")}
+                >
+                  This MCP server
+                </button>
+                <button
+                  type="button"
+                  className={location === "lan" ? "selected" : ""}
+                  aria-pressed={location === "lan"}
+                  onClick={() => setLocation("lan")}
+                >
+                  Local network
+                </button>
+              </div>
+            </fieldset>
+          )}
         </div>
 
-        {location === "lan" && (
+        {!isClaudeDesktop && location === "lan" && (
           <div className="lan-setup">
             <label>
               MCP server LAN hostname or IP address
@@ -3090,21 +3126,45 @@ function ConnectionGuideView({
           </div>
         )}
 
-        {location === "local" && (
+        {!isClaudeDesktop && location === "local" && (
           <p className="connection-note">
             This configuration works only on the computer running the MCP service. It uses the loopback address and needs no LAN firewall rule.
           </p>
         )}
 
+        {isClaudeDesktop && (
+          <div className="claude-setup">
+            <p className="connection-note">
+              Claude Desktop starts a local Stdio-only server process on this computer. It does not use an HTTP endpoint or the MCP API key.
+            </p>
+            <ol>
+              <li>Open <code>%APPDATA%\Claude\claude_desktop_config.json</code>.</li>
+              <li>Add the generated server entry to <code>mcpServers</code>.</li>
+              <li>Save the file and restart Claude Desktop.</li>
+            </ol>
+            {!configuration && (
+              <p className="notice" role="status">
+                Restart this MCP server to generate the local Node.js and project paths for Claude Desktop.
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="connection-summary">
-          <span>Streamable HTTP endpoint</span>
-          <code>{endpoint || "Enter a LAN hostname or IP address."}</code>
+          <span>{isClaudeDesktop ? "Transport" : "Streamable HTTP endpoint"}</span>
+          <code>{isClaudeDesktop ? "Local Stdio process (no HTTP port)" : endpoint || "Enter a LAN hostname or IP address."}</code>
         </div>
         <div className="connection-instructions">
           <div>
-            <h2>{harness === "vscode" ? "VS Code / GitHub Copilot" : "MCP client"}</h2>
+            <h2>{harness === "vscode" ? "VS Code / GitHub Copilot" : harness === "cursor" ? "Cursor" : "Claude Desktop"}</h2>
             <p>
-              Open the MCP configuration command in VS Code and add this server entry. The API key is requested securely when the client connects.
+              {harness === "vscode"
+                ? "Open the MCP configuration command in VS Code and add this server entry. The API key is requested securely when the client connects."
+                : harness === "cursor" && connectionInfo?.apiKeyRequired
+                  ? "Open Cursor's MCP configuration and replace <JMXQ_MCPAPI_KEY> with the MCP API key before saving this server entry."
+                  : harness === "cursor"
+                    ? "Open Cursor's MCP configuration and add this server entry."
+                    : "Open Claude Desktop's configuration file and add this local server entry. Restart Claude Desktop after saving."}
             </p>
           </div>
           <button

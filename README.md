@@ -233,6 +233,48 @@ For a client on another computer in the same local network:
 
 For example, a server named `bc-mcp-server` running on port `5000` uses `http://bc-mcp-server:5000/mcp/stream`. Do not use `127.0.0.1` or `localhost` from another computer: those addresses point to the client computer, not the MCP server.
 
+## Cursor
+
+In the Admin GUI, select **Connect**, choose **Cursor**, then choose the appropriate access location and copy the generated entry into Cursor's MCP configuration. Cursor uses the `mcpServers` format and connects through the same Streamable HTTP endpoint as VS Code.
+
+When MCP authentication is enabled, replace the `<JMXQ_MCPAPI_KEY>` placeholder with the MCP API key before saving the configuration. Do not use the Admin API key.
+
+```json
+{
+  "mcpServers": {
+    "jmx-query": {
+      "url": "http://127.0.0.1:5000/mcp/stream",
+      "headers": {
+        "Authorization": "Bearer <JMXQ_MCPAPI_KEY>"
+      }
+    }
+  }
+}
+```
+
+## Claude Desktop
+
+In the Admin GUI, select **Connect** and choose **Claude Desktop**. The generated configuration starts a local Stdio-only process and is valid only on the computer where this repository and Node.js are installed. It does not use the HTTP endpoint, the LAN configuration, or `JMXQ_MCPAPI_KEY`.
+
+Add the copied entry to Claude Desktop's MCP configuration file, then restart Claude Desktop. The entry uses `JMXQ_STDIO_ONLY=true` so the process does not start HTTP listeners or conflict with the running Windows service.
+
+```json
+{
+  "mcpServers": {
+    "jmx-query": {
+      "command": "C:\\Program Files\\nodejs\\node.exe",
+      "args": ["build/index.js"],
+      "cwd": "C:\\path\\to\\jmxquery-mcp-server",
+      "env": {
+        "JMXQ_STDIO_ONLY": "true"
+      }
+    }
+  }
+}
+```
+
+The Admin guide substitutes the actual Node.js executable path and repository directory for this computer.
+
 ### Agent Workflow
 
 The server returns workflow instructions during MCP initialization. The first Business Central action must identify an explicit target:

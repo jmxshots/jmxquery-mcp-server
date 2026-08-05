@@ -277,6 +277,8 @@ if (config.ADMIN_API_ENABLED) {
             apiKeyRequired: Boolean(config.JMXQ_MCPAPI_KEY?.trim()),
             hostname: hostname(),
             lanAddresses: getLanAddresses(),
+            workingDirectory: process.cwd(),
+            nodePath: process.execPath,
         };
     });
 
@@ -875,6 +877,12 @@ const startStdio = async () => {
 
 const start = async () => {
     try {
+        if (process.env.JMXQ_STDIO_ONLY?.toLowerCase() === 'true') {
+            await startStdio();
+            logger.info('MCP Stdio-only transport ready');
+            return;
+        }
+
         // Start Stdio transport in parallel
         startStdio();
 

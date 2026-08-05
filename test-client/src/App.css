@@ -673,6 +673,24 @@ input:disabled {
   font-size: 13px;
   line-height: 1.55;
 }
+.claude-setup {
+  display: grid;
+  gap: 10px;
+}
+.claude-setup ol {
+  color: #456664;
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0;
+  padding-left: 20px;
+}
+.claude-setup code {
+  background: #edf0eb;
+  border-radius: 3px;
+  color: #183a3f;
+  font: 12px ui-monospace, monospace;
+  padding: 2px 4px;
+}
 .connection-summary {
   background: #edf0eb;
   border-left: 3px solid #56756d;
@@ -991,7 +1009,8 @@ input:disabled {
 }
 :root[data-theme="dark"] .location-control legend,
 :root[data-theme="dark"] .connection-note,
-:root[data-theme="dark"] .connection-instructions p {
+:root[data-theme="dark"] .connection-instructions p,
+:root[data-theme="dark"] .claude-setup ol {
   color: #b7ceca;
 }
 :root[data-theme="dark"] .segmented-control button {
@@ -1016,6 +1035,10 @@ input:disabled {
 }
 :root[data-theme="dark"] .connection-summary code {
   color: #dce8e7;
+}
+:root[data-theme="dark"] .claude-setup code {
+  background: #273940;
+  color: #e2efec;
 }
 :root[data-theme="dark"] .connection-code {
   background: #0d171c;
