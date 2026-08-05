@@ -67,7 +67,6 @@
 .sidebar-footer {
   border-top: 1px solid #36636a;
   gap: 8px;
-  margin-top: auto;
   padding: 14px 8px 0;
 }
 .server-name {
@@ -387,6 +386,11 @@ select:focus {
   border-color: #bf6543;
   outline: 2px solid #f4d1bd;
 }
+input:disabled {
+  background: #e9e7e2;
+  color: #637876;
+  cursor: not-allowed;
+}
 .checkbox-label {
   align-items: center;
   display: flex;
@@ -642,9 +646,6 @@ select:focus {
   clip: rect(0, 0, 0, 0);
 }
 
-.sidebar-theme-control {
-  padding: 0 8px;
-}
 .theme-toggle {
   color: #c2d7d3;
 }
@@ -756,6 +757,10 @@ select:focus {
   background: #101b21;
   border-color: #496167;
   color: #e6f0ee;
+}
+:root[data-theme="dark"] input:disabled {
+  background: #273940;
+  color: #91aaa7;
 }
 :root[data-theme="dark"] input:focus,
 :root[data-theme="dark"] select:focus {
@@ -941,9 +946,6 @@ textarea:focus {
   .nav-button:hover,
   .nav-button.active {
     border-bottom-color: #eab676;
-  }
-  .sidebar-footer {
-    display: none;
   }
   .workspace {
     padding: 18px 12px;

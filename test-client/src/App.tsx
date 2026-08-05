@@ -37,6 +37,7 @@ type View = "instances" | "tools" | "logs" | "documentation";
 type Theme = "light" | "dark";
 type AuthType = "BASIC" | "NTLM" | "SSO" | "OAUTH";
 type SecretField = "password" | "clientSecret";
+type LogTimeRange = "all" | "5m" | "10m" | "1h" | "6h" | "24h" | "3d" | "custom";
 interface Company {
   id: string;
   name: string;
@@ -285,6 +286,14 @@ const isInternationalDate = (value: string) => {
 };
 const toLogTimestamp = (value: string, endOfDay = false) =>
   `${value.replaceAll("/", "-")}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}Z`;
+const logTimeRangeMinutes: Partial<Record<LogTimeRange, number>> = {
+  "5m": 5,
+  "10m": 10,
+  "1h": 60,
+  "6h": 360,
+  "24h": 1440,
+  "3d": 4320,
+};
 const formatLogTimestamp = (timestamp: string) => {
   const date = new Date(timestamp);
   const pad = (value: number) => String(value).padStart(2, "0");
@@ -456,6 +465,24 @@ function App() {
           <span>JMX Query</span>
           <small>Admin</small>
         </div>
+        <div className="sidebar-footer">
+          <span className="server-name" title={session.serverUrl}>
+            {session.serverUrl}
+          </span>
+          <ThemeToggle
+            theme={theme}
+            onToggle={() => setTheme(theme === "light" ? "dark" : "light")}
+          />
+          <button
+            className="icon-button"
+            type="button"
+            title="Sign out"
+            aria-label="Sign out"
+            onClick={() => void signOut()}
+          >
+            <LogOut size={18} />
+          </button>
+        </div>
         <nav>
           <NavigationButton
             active={view === "instances"}
@@ -482,26 +509,6 @@ function App() {
             onClick={() => setView("documentation")}
           />
         </nav>
-        <div className="sidebar-theme-control">
-          <ThemeToggle
-            theme={theme}
-            onToggle={() => setTheme(theme === "light" ? "dark" : "light")}
-          />
-        </div>
-        <div className="sidebar-footer">
-          <span className="server-name" title={session.serverUrl}>
-            {session.serverUrl}
-          </span>
-          <button
-            className="icon-button"
-            type="button"
-            title="Sign out"
-            aria-label="Sign out"
-            onClick={() => void signOut()}
-          >
-            <LogOut size={18} />
-          </button>
-        </div>
       </aside>
       <section className="workspace">
         {view === "instances" && (
@@ -2322,10 +2329,10 @@ function LogsView({
     instanceName: "",
     companyName: "",
     tool: "",
-    requestId: "",
     from: "",
     to: "",
   });
+  const [timeRange, setTimeRange] = useState<LogTimeRange>("all");
   const [logs, setLogs] = useState<LogRecord[]>([]);
   const [filterOptions, setFilterOptions] = useState<LogFilterOptions>(
     emptyLogFilterOptions,
@@ -2349,10 +2356,20 @@ function LogsView({
       ) {
         throw new Error("Enter dates in yyyy/mm/dd format.");
       }
+      const rangeMinutes = logTimeRangeMinutes[timeRange];
+      const now = new Date();
       const queryValues = {
         ...filters,
-        from: filters.from ? toLogTimestamp(filters.from) : "",
-        to: filters.to ? toLogTimestamp(filters.to, true) : "",
+        from: rangeMinutes
+          ? new Date(now.getTime() - rangeMinutes * 60_000).toISOString()
+          : filters.from
+            ? toLogTimestamp(filters.from)
+            : "",
+        to: rangeMinutes
+          ? now.toISOString()
+          : filters.to
+            ? toLogTimestamp(filters.to, true)
+            : "",
       };
       const query = new URLSearchParams(
         Object.entries(queryValues).filter(([, value]) => value),
@@ -2406,7 +2423,7 @@ function LogsView({
     } finally {
       setLoading(false);
     }
-  }, [filters, request]);
+  }, [filters, request, timeRange]);
   useEffect(() => {
     if (
       (filters.from && !isInternationalDate(filters.from)) ||
@@ -2415,7 +2432,7 @@ function LogsView({
       return;
     }
     void load();
-  }, [filters.from, filters.to, load]);
+  }, [filters.from, filters.to, load, timeRange]);
   const companyOptions = filterOptions.companies.filter(
     (company) =>
       !filters.instanceName || company.instanceName === filters.instanceName,
@@ -2563,47 +2580,64 @@ function LogsView({
           </select>
         </label>
         <label>
-          Request ID
-          <input
-            value={filters.requestId}
-            title="Filter records by the server request ID"
-            onChange={(event) =>
-              setFilters({ ...filters, requestId: event.target.value })
-            }
-          />
+          Zeitraum
+          <select
+            value={timeRange}
+            title="Zeitraum für die angezeigten Protokolle auswählen"
+            onChange={(event) => {
+              const selectedRange = event.target.value as LogTimeRange;
+              setTimeRange(selectedRange);
+              if (selectedRange !== "custom") {
+                setFilters({ ...filters, from: "", to: "" });
+              }
+            }}
+          >
+            <option value="all">Gesamter Zeitraum</option>
+            <option value="5m">Letzte 5 Min.</option>
+            <option value="10m">Letzte 10 Min.</option>
+            <option value="1h">Letzte Stunde</option>
+            <option value="6h">Letzte 6 Stunden</option>
+            <option value="24h">Letzte 24 Stunden</option>
+            <option value="3d">Letzte 3 Tage</option>
+            <option value="custom">Benutzerdefiniert</option>
+          </select>
         </label>
         <label>
-          From
+          Von
           <input
             type="text"
             value={filters.from}
-            title="Show records created on or after this UTC date"
-            placeholder="yyyy/mm/dd"
+            disabled={timeRange !== "custom"}
+            title="Protokolle ab diesem UTC-Datum anzeigen"
+            placeholder="jjjj/mm/tt"
             inputMode="numeric"
             pattern="\d{4}/\d{2}/\d{2}"
-            onChange={(event) =>
+            onChange={(event) => {
+              setTimeRange("custom");
               setFilters({
                 ...filters,
                 from: event.target.value,
-              })
-            }
+              });
+            }}
           />
         </label>
         <label>
-          To
+          Bis
           <input
             type="text"
             value={filters.to}
-            title="Show records created on or before this UTC date"
-            placeholder="yyyy/mm/dd"
+            disabled={timeRange !== "custom"}
+            title="Protokolle bis zu diesem UTC-Datum anzeigen"
+            placeholder="jjjj/mm/tt"
             inputMode="numeric"
             pattern="\d{4}/\d{2}/\d{2}"
-            onChange={(event) =>
+            onChange={(event) => {
+              setTimeRange("custom");
               setFilters({
                 ...filters,
                 to: event.target.value,
-              })
-            }
+              });
+            }}
           />
         </label>
         <label>
