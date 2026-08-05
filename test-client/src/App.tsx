@@ -319,15 +319,25 @@ const isInternationalDate = (value: string) => {
   const match = /^(\d{4})\/(\d{2})\/(\d{2})$/.exec(value);
   if (!match) return false;
   const [, year, month, day] = match;
-  const date = new Date(`${year}-${month}-${day}T00:00:00.000Z`);
+  const date = new Date(Number(year), Number(month) - 1, Number(day));
   return (
-    date.getUTCFullYear() === Number(year) &&
-    date.getUTCMonth() + 1 === Number(month) &&
-    date.getUTCDate() === Number(day)
+    date.getFullYear() === Number(year) &&
+    date.getMonth() + 1 === Number(month) &&
+    date.getDate() === Number(day)
   );
 };
-const toLogTimestamp = (value: string, endOfDay = false) =>
-  `${value.replaceAll("/", "-")}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}Z`;
+const toLogTimestamp = (value: string, endOfDay = false) => {
+  const [year, month, day] = value.split("/").map(Number);
+  return new Date(
+    year,
+    month - 1,
+    day,
+    endOfDay ? 23 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 999 : 0,
+  ).toISOString();
+};
 const logTimeRangeMinutes: Partial<Record<LogTimeRange, number>> = {
   "5m": 5,
   "10m": 10,
@@ -339,7 +349,7 @@ const logTimeRangeMinutes: Partial<Record<LogTimeRange, number>> = {
 const formatLogTimestamp = (timestamp: string) => {
   const date = new Date(timestamp);
   const pad = (value: number) => String(value).padStart(2, "0");
-  return `${date.getUTCFullYear()}/${pad(date.getUTCMonth() + 1)}/${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())} UTC`;
+  return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 };
 
 function App() {
@@ -2734,7 +2744,7 @@ function LogsView({
             type="text"
             value={filters.from}
             disabled={timeRange !== "custom"}
-            title="Protokolle ab diesem UTC-Datum anzeigen"
+            title="Protokolle ab diesem lokalen Datum anzeigen"
             placeholder="jjjj/mm/tt"
             inputMode="numeric"
             pattern="\d{4}/\d{2}/\d{2}"
@@ -2753,7 +2763,7 @@ function LogsView({
             type="text"
             value={filters.to}
             disabled={timeRange !== "custom"}
-            title="Protokolle bis zu diesem UTC-Datum anzeigen"
+            title="Protokolle bis zu diesem lokalen Datum anzeigen"
             placeholder="jjjj/mm/tt"
             inputMode="numeric"
             pattern="\d{4}/\d{2}/\d{2}"
@@ -2795,7 +2805,7 @@ function LogsView({
         <table>
           <thead>
             <tr>
-              <th>Time</th>
+              <th>Local time</th>
               <th>Status</th>
               <th>Instance</th>
               <th>Company</th>
