@@ -165,6 +165,18 @@ test('applyBootstrapSettings changes ports and API keys but preserves the master
         () => applyBootstrapSettings(validConfiguration, { mcpPort: '6000', streamablePort: '6000' }),
         /must use different ports/,
     );
+    assert.match(
+        applyBootstrapSettings(validConfiguration, { adminApiKey: 'admin-key1' }),
+        /^ADMIN_API_KEY=admin-key1$/m,
+    );
+    assert.throws(
+        () => applyBootstrapSettings(validConfiguration, { adminApiKey: 'short-key' }),
+        /ADMIN_API_KEY must contain at least 10 characters/,
+    );
+    assert.throws(
+        () => applyBootstrapSettings(validConfiguration, { mcpApiKey: 'mcp-key-10' }),
+        /JMXQ_MCPAPI_KEY must contain at least 32 characters/,
+    );
 });
 
 test('getAdminUrl returns a browser-usable URL for configured listener addresses', () => {

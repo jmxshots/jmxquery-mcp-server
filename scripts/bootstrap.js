@@ -52,6 +52,7 @@ const setEnvValue = (contents, name, value) => {
 };
 
 const isConfiguredSecret = (name, value) => Boolean(value && value !== secretPlaceholders[name]);
+const minimumSecretLength = (name) => name === 'ADMIN_API_KEY' ? 10 : 32;
 
 const parsePort = (value, name) => {
     const port = Number(value);
@@ -89,7 +90,10 @@ export const applyBootstrapSettings = (contents, settings = {}, generateSecret =
         if (selection === 'generate') {
             do value = generateSecret(); while (usedSecrets.has(value));
         }
-        if (value.length < 32) throw new Error(`${name} must contain at least 32 characters.`);
+        const minimumLength = minimumSecretLength(name);
+        if (value.length < minimumLength) {
+            throw new Error(`${name} must contain at least ${minimumLength} characters.`);
+        }
         usedSecrets.add(value);
         output = setEnvValue(output, name, value);
     };
@@ -122,9 +126,12 @@ const promptForSecret = async (readline, name, currentValue) => {
         if (choice === 'k' && hasExistingValue) return 'keep';
         if (choice === 'g') return 'generate';
         if (choice === 'e') {
-            const value = (await readline.question(`${name} (input is visible, at least 32 characters): `)).trim();
-            if (value.length >= 32) return value;
-            console.log(`${name} must contain at least 32 characters.`);
+            const minimumLength = minimumSecretLength(name);
+            const value = (await readline.question(
+                `${name} (input is visible, at least ${minimumLength} characters): `,
+            )).trim();
+            if (value.length >= minimumLength) return value;
+            console.log(`${name} must contain at least ${minimumLength} characters.`);
             continue;
         }
         console.log('Please choose one of the displayed options.');
