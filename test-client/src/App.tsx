@@ -193,11 +193,34 @@ const defaultServerUrl = import.meta.env.DEV
 const normalizeServerUrl = (value: string) => value.trim().replace(/\/+$/, "");
 const themeStorageKey = "jmx-query-admin-theme";
 const adminServerUrlStorageKey = "jmx-query-admin-server-url";
+const adminServerUrlHistoryStorageKey = "jmx-query-admin-server-url-history";
 const initialServerUrl = () => {
   try {
     return window.localStorage.getItem(adminServerUrlStorageKey) || defaultServerUrl;
   } catch {
     return defaultServerUrl;
+  }
+};
+const initialServerUrlHistory = () => {
+  try {
+    const storedHistory = JSON.parse(
+      window.localStorage.getItem(adminServerUrlHistoryStorageKey) || "[]",
+    );
+    const legacyServerUrl = window.localStorage.getItem(adminServerUrlStorageKey);
+    const entries = [
+      ...(Array.isArray(storedHistory) ? storedHistory : []),
+      ...(legacyServerUrl ? [legacyServerUrl] : []),
+    ];
+    return Array.from(
+      new Set(
+        entries
+          .filter((value): value is string => typeof value === "string")
+          .map(normalizeServerUrl)
+          .filter(Boolean),
+      ),
+    ).slice(0, 8);
+  } catch {
+    return [];
   }
 };
 const initialTheme = (): Theme => {
@@ -305,6 +328,9 @@ function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [view, setView] = useState<View>("instances");
   const [serverUrl, setServerUrl] = useState(initialServerUrl);
+  const [serverUrlHistory, setServerUrlHistory] = useState(
+    initialServerUrlHistory,
+  );
   const [adminKey, setAdminKey] = useState("");
   const [loginError, setLoginError] = useState("");
   const [instances, setInstances] = useState<Instance[]>([]);
@@ -319,6 +345,16 @@ function App() {
       // Theme preference is optional when browser storage is unavailable.
     }
   }, [theme]);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        adminServerUrlHistoryStorageKey,
+        JSON.stringify(serverUrlHistory),
+      );
+    } catch {
+      // URL history is optional when browser storage is unavailable.
+    }
+  }, [serverUrlHistory]);
   useEffect(() => {
     const candidateServerUrl = normalizeServerUrl(initialServerUrl());
     const restoreSession = async () => {
@@ -416,6 +452,10 @@ function App() {
       } catch {
         // Session restoration is optional when browser storage is unavailable.
       }
+      setServerUrlHistory((previous) => [
+        candidate.serverUrl,
+        ...previous.filter((url) => url !== candidate.serverUrl),
+      ].slice(0, 8));
       setAdminKey("");
       setSession({ serverUrl: candidate.serverUrl });
     } catch (error) {
@@ -425,6 +465,9 @@ function App() {
           : "Unable to reach the Admin API.",
       );
     }
+  };
+  const removeServerUrlFromHistory = (url: string) => {
+    setServerUrlHistory((previous) => previous.filter((entry) => entry !== url));
   };
   const signOut = async () => {
     if (!session) return;
@@ -453,6 +496,8 @@ function App() {
         onServerUrl={setServerUrl}
         onAdminKey={setAdminKey}
         onSubmit={signIn}
+        serverUrlHistory={serverUrlHistory}
+        onRemoveServerUrl={removeServerUrlFromHistory}
         theme={theme}
         onThemeChange={() => setTheme(theme === "light" ? "dark" : "light")}
       />
@@ -536,6 +581,8 @@ function LoginScreen({
   onServerUrl,
   onAdminKey,
   onSubmit,
+  serverUrlHistory,
+  onRemoveServerUrl,
   theme,
   onThemeChange,
 }: {
@@ -545,9 +592,12 @@ function LoginScreen({
   onServerUrl: (value: string) => void;
   onAdminKey: (value: string) => void;
   onSubmit: (event: FormEvent) => void;
+  serverUrlHistory: string[];
+  onRemoveServerUrl: (url: string) => void;
   theme: Theme;
   onThemeChange: () => void;
 }) {
+  const [showServerHistory, setShowServerHistory] = useState(false);
   return (
     <main className="login-page">
       <form className="login-panel" onSubmit={onSubmit}>
@@ -561,15 +611,27 @@ function LoginScreen({
         </div>
         <label>
           Server URL
-          <input
-            type="url"
-            value={serverUrl}
-            title="URL of the JMX-QUERY MCP Server Admin API"
-            onChange={(event) => onServerUrl(event.target.value)}
-            placeholder="http://127.0.0.1:5000"
-            autoComplete="url"
-            required
-          />
+          <span className="server-url-input">
+            <input
+              type="url"
+              value={serverUrl}
+              title="URL of the JMX-QUERY MCP Server Admin API"
+              onChange={(event) => onServerUrl(event.target.value)}
+              placeholder="http://127.0.0.1:5000"
+              autoComplete="url"
+              required
+            />
+            <button
+              className="icon-button"
+              type="button"
+              title="Gespeicherte Server anzeigen"
+              aria-label="Gespeicherte Server anzeigen"
+              disabled={serverUrlHistory.length === 0}
+              onClick={() => setShowServerHistory(true)}
+            >
+              <Server size={17} />
+            </button>
+          </span>
         </label>
         <label>
           Admin API key
@@ -599,6 +661,42 @@ function LoginScreen({
           Credentials remain in this browser tab only.
         </p>
       </form>
+      {showServerHistory && (
+        <Modal
+          title="Gespeicherte Server"
+          onClose={() => setShowServerHistory(false)}
+        >
+          <div className="server-history">
+            <p>Server auswählen oder aus dem Verlauf entfernen.</p>
+              <ul>
+                {serverUrlHistory.map((url) => (
+                  <li key={url}>
+                    <button
+                      className="server-history-select"
+                      type="button"
+                      title={`${url} verwenden`}
+                      onClick={() => {
+                        onServerUrl(url);
+                        setShowServerHistory(false);
+                      }}
+                    >
+                      {url}
+                    </button>
+                    <button
+                      className="icon-button danger"
+                      type="button"
+                      title={`${url} aus dem Verlauf entfernen`}
+                      aria-label={`${url} aus dem Verlauf entfernen`}
+                      onClick={() => onRemoveServerUrl(url)}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+          </div>
+        </Modal>
+      )}
     </main>
   );
 }
