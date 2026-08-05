@@ -137,6 +137,7 @@ export const runBootstrap = ({
     platform = process.platform,
     npmExecutable,
     nodeExecutable = process.execPath,
+    commandShell = process.env.ComSpec || 'cmd.exe',
     runCommand: commandRunner = runCommand,
     logger = console.log,
     generateSecret = createSecret,
@@ -147,18 +148,28 @@ export const runBootstrap = ({
 
     const npm = npmExecutable || (platform === 'win32' ? 'npm.cmd' : 'npm');
     const commandOptions = { cwd: rootDirectory, runCommand: commandRunner };
+    const executeNpm = args => execute(
+        commandShell,
+        ['/d', '/s', '/c', [npm, ...args]
+            .map(value => value.includes(' ') ? `"${value}"` : value)
+            .join(' ')],
+        commandOptions,
+    );
 
-    logger('1/4 Installing npm dependencies...');
-    execute(npm, ['install'], commandOptions);
+    logger('1/5 Installing server dependencies...');
+    executeNpm(['ci']);
 
-    logger('2/4 Preparing service configuration...');
+    logger('2/5 Installing Admin GUI dependencies...');
+    executeNpm(['--prefix', 'test-client', 'ci']);
+
+    logger('3/5 Preparing service configuration...');
     const configuration = provisionConfiguration(rootDirectory, { generateSecret });
     logger(configuration.created ? 'Created .env with new secret values.' : 'Using existing validated .env.');
 
-    logger('3/4 Building server and Admin GUI...');
-    execute(npm, ['run', 'build'], commandOptions);
+    logger('4/5 Building server and Admin GUI...');
+    executeNpm(['run', 'build']);
 
-    logger('4/4 Installing and starting the Windows service...');
+    logger('5/5 Installing and starting the Windows service...');
     execute(nodeExecutable, [path.join(rootDirectory, 'scripts', 'install-service.js')], commandOptions);
     logger('Bootstrap completed. Open the Admin GUI to create an Instance and Company.');
 };

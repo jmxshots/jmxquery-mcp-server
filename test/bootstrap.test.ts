@@ -87,6 +87,7 @@ test('runBootstrap executes the dependency, build, and service phases in order',
             rootDirectory,
             platform: 'win32',
             nodeExecutable: 'node.exe',
+            commandShell: 'cmd.exe',
             logger: message => messages.push(message),
             runCommand: (command, args) => {
                 commands.push({ command, args });
@@ -95,8 +96,9 @@ test('runBootstrap executes the dependency, build, and service phases in order',
         });
 
         assert.deepEqual(commands, [
-            { command: 'npm.cmd', args: ['install'] },
-            { command: 'npm.cmd', args: ['run', 'build'] },
+            { command: 'cmd.exe', args: ['/d', '/s', '/c', 'npm.cmd ci'] },
+            { command: 'cmd.exe', args: ['/d', '/s', '/c', 'npm.cmd --prefix test-client ci'] },
+            { command: 'cmd.exe', args: ['/d', '/s', '/c', 'npm.cmd run build'] },
             { command: 'node.exe', args: [path.join(rootDirectory, 'scripts', 'install-service.js')] },
         ]);
         assert.match(messages.at(-1)!, /Bootstrap completed/);
