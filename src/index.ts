@@ -234,6 +234,8 @@ const getLanAddresses = (): string[] => Array.from(new Set(
         .map(address => address.address),
 ));
 
+const getDisplayHost = (host: string): string => host === '0.0.0.0' ? '127.0.0.1' : host;
+
 const isValidAdminApiKey = (request: any): boolean => {
     const authHeader = request.headers.authorization;
     const bearerToken = typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
@@ -900,11 +902,12 @@ const start = async () => {
 
         // Start HTTP server for SSE (and Streamable HTTP if no separate port)
         await fastify.listen({ port: config.MCP_PORT, host: config.MCP_HOST });
-        logger.info(`HTTP listener ready | http://${config.MCP_HOST}:${config.MCP_PORT}`);
-        logger.info(`SSE endpoint | http://${config.MCP_HOST}:${config.MCP_PORT}/mcp/sse`);
+        const displayHost = getDisplayHost(config.MCP_HOST);
+        logger.info(`HTTP listener ready | http://${displayHost}:${config.MCP_PORT}`);
+        logger.info(`SSE endpoint | http://${displayHost}:${config.MCP_PORT}/mcp/sse`);
         if (config.ADMIN_API_ENABLED) {
-            logger.info(`Admin GUI | http://${config.MCP_HOST}:${config.MCP_PORT}/admin`);
-            logger.info(`Admin API | http://${config.MCP_HOST}:${config.MCP_PORT}/admin/api`);
+            logger.info(`Admin GUI | http://${displayHost}:${config.MCP_PORT}/admin`);
+            logger.info(`Admin API | http://${displayHost}:${config.MCP_PORT}/admin/api`);
         }
 
         // Start separate Streamable HTTP server if configured
@@ -915,7 +918,7 @@ const start = async () => {
         WindowsEventLogger.info('JMX-QUERY MCP Server started successfully');
 
         const isAuthActive = !!config.JMXQ_MCPAPI_KEY;
-        const streamableEndpoint = `http://${config.MCP_HOST}:${streamablePort || config.MCP_PORT}/mcp/stream`;
+    const streamableEndpoint = `http://${displayHost}:${streamablePort || config.MCP_PORT}/mcp/stream`;
         logger.info(`Streamable HTTP endpoint | ${streamableEndpoint}`);
         logger.info(`API key authentication ${isAuthActive ? 'enabled' : 'disabled'}`);
         if (!isAuthActive) {
