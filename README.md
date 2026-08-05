@@ -95,7 +95,7 @@ For SSO, the Windows account running the service must be an authorized Business 
 | `LOG_SCRIPT_MAX_LENGTH` | Maximum stored JMX-QUERY script length. | `4000` |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, or `error`. | `info` |
 
-Keep `MCP_HOST=127.0.0.1` for local-only installations. Binding `0.0.0.0` exposes the service on all IPv4 interfaces. Remote access requires a restrictive firewall, TLS through a reverse proxy, and strong distinct MCP and Admin API keys.
+Keep `MCP_HOST=127.0.0.1` when MCP clients run on the same computer as the service. To allow trusted clients in the local network, bind either the server's specific LAN address or `0.0.0.0`. Add a restrictive Windows Firewall inbound rule for the required MCP port, scoped to the Private profile and trusted LAN IP range. Do not expose the service to the internet.
 
 ## Windows Service
 
@@ -194,7 +194,9 @@ When `JMXQ_MCPAPI_KEY` is configured, HTTP MCP clients must send `Authorization:
 
 ## VS Code and GitHub Copilot
 
-Use a Streamable HTTP MCP server entry in your VS Code MCP configuration. The exact configuration file location can vary with VS Code release and workspace policy; use the MCP configuration command exposed by VS Code, then add an entry equivalent to this example:
+Open the Admin GUI and select **Connect** for a server-specific, copyable configuration. Choose **This MCP server** when VS Code runs on the computer hosting this service, or **Local network** when VS Code runs on another trusted LAN computer. For a loopback Admin URL, the Local network mode pre-fills a detected server LAN address and offers the server name and other detected LAN addresses. The guide never displays the MCP API key; it creates a password prompt when authentication is enabled.
+
+Use a Streamable HTTP MCP server entry in your VS Code MCP configuration. The exact configuration file location can vary with VS Code release and workspace policy; use the MCP configuration command exposed by VS Code, then add an entry equivalent to this same-computer example:
 
 ```json
 {
@@ -219,6 +221,17 @@ Use a Streamable HTTP MCP server entry in your VS Code MCP configuration. The ex
 ```
 
 Use `http://127.0.0.1:5001/mcp/stream` when `MCP_STREAMABLE_PORT=5001` is configured.
+
+### Local Network Clients
+
+For a client on another computer in the same local network:
+
+1. Configure `MCP_HOST` with the server's LAN IP address, or use `0.0.0.0` to listen on all IPv4 interfaces.
+2. Restart the server or Windows service.
+3. Allow the MCP port through Windows Firewall only for the Private profile and the trusted client subnet or IP addresses. Allow `MCP_PORT` when no separate Streamable port is configured; otherwise allow `MCP_STREAMABLE_PORT`.
+4. In **Connect**, choose **Local network** and use the server's LAN DNS name or IP address. Copy the generated configuration into VS Code on the client computer.
+
+For example, a server named `bc-mcp-server` running on port `5000` uses `http://bc-mcp-server:5000/mcp/stream`. Do not use `127.0.0.1` or `localhost` from another computer: those addresses point to the client computer, not the MCP server.
 
 ### Agent Workflow
 

@@ -602,6 +602,121 @@ input:disabled {
   background: none;
   padding: 0;
 }
+.connection-panel {
+  background: #fffdf8;
+  border: 1px solid #cbd7d0;
+  display: grid;
+  gap: 24px;
+  padding: clamp(20px, 4vw, 38px);
+}
+.connection-controls {
+  align-items: end;
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(230px, 0.7fr) minmax(300px, 1fr);
+}
+.connection-controls label,
+.lan-setup label {
+  display: grid;
+  gap: 7px;
+}
+.location-control {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.location-control legend {
+  color: #345c60;
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 7px;
+}
+.segmented-control {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.segmented-control button {
+  background: #fffdf8;
+  border: 1px solid #aabdb7;
+  color: #345c60;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  min-height: 38px;
+  padding: 8px 12px;
+}
+.segmented-control button + button {
+  border-left: 0;
+}
+.segmented-control button:first-child {
+  border-radius: 5px 0 0 5px;
+}
+.segmented-control button:last-child {
+  border-radius: 0 5px 5px 0;
+}
+.segmented-control button:hover {
+  border-color: #56756d;
+}
+.segmented-control button.selected {
+  background: #24525a;
+  border-color: #24525a;
+  color: #fff;
+}
+.lan-setup {
+  border-top: 1px solid #d9e1dc;
+  display: grid;
+  gap: 13px;
+  padding-top: 22px;
+}
+.connection-note {
+  color: #456664;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.connection-summary {
+  background: #edf0eb;
+  border-left: 3px solid #56756d;
+  display: grid;
+  gap: 5px;
+  padding: 13px 15px;
+}
+.connection-summary span {
+  color: #56756d;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+}
+.connection-summary code {
+  color: #183a3f;
+  font: 13px/1.5 ui-monospace, monospace;
+  overflow-wrap: anywhere;
+}
+.connection-instructions {
+  align-items: start;
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+}
+.connection-instructions p {
+  color: #456664;
+  line-height: 1.55;
+  margin-top: 6px;
+  max-width: 700px;
+}
+.connection-instructions .secondary-button {
+  flex: 0 0 auto;
+}
+.connection-code {
+  background: #183a3f;
+  color: #eff7f4;
+  margin: 0;
+  max-width: 100%;
+  min-height: 260px;
+  overflow: auto;
+  padding: 18px;
+  white-space: pre;
+}
 .login-page {
   align-items: center;
   background: linear-gradient(135deg, #e4eee8 0%, #f4f1e9 55%, #f5d7bf 100%);
@@ -750,6 +865,7 @@ input:disabled {
 :root[data-theme="dark"] .detail-panel,
 :root[data-theme="dark"] .log-table-wrap,
 :root[data-theme="dark"] .markdown-content,
+:root[data-theme="dark"] .connection-panel,
 :root[data-theme="dark"] .login-panel,
 :root[data-theme="dark"] .modal,
 :root[data-theme="dark"] .secondary-button {
@@ -873,6 +989,38 @@ input:disabled {
   background: #0d171c;
   color: #dce8e7;
 }
+:root[data-theme="dark"] .location-control legend,
+:root[data-theme="dark"] .connection-note,
+:root[data-theme="dark"] .connection-instructions p {
+  color: #b7ceca;
+}
+:root[data-theme="dark"] .segmented-control button {
+  background: #101b21;
+  border-color: #496167;
+  color: #d8e7e4;
+}
+:root[data-theme="dark"] .segmented-control button.selected {
+  background: #2e6268;
+  border-color: #2e6268;
+  color: #fff;
+}
+:root[data-theme="dark"] .lan-setup {
+  border-color: #30434a;
+}
+:root[data-theme="dark"] .connection-summary {
+  background: #20353a;
+  border-left-color: #58a99d;
+}
+:root[data-theme="dark"] .connection-summary span {
+  color: #a8cfca;
+}
+:root[data-theme="dark"] .connection-summary code {
+  color: #dce8e7;
+}
+:root[data-theme="dark"] .connection-code {
+  background: #0d171c;
+  color: #dce8e7;
+}
 :root[data-theme="dark"] .login-page {
   background: linear-gradient(135deg, #102a31 0%, #111a20 52%, #3c2a25 100%);
 }
@@ -979,6 +1127,9 @@ textarea:focus {
   .docs-grid {
     grid-template-columns: 1fr;
   }
+  .connection-controls {
+    grid-template-columns: 1fr;
+  }
   .toc {
     border-bottom: 1px solid #cbd7d0;
     border-right: 0;
@@ -1037,6 +1188,13 @@ textarea:focus {
   }
   .detail-panel {
     padding: 16px;
+  }
+  .connection-instructions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .connection-instructions .secondary-button {
+    width: 100%;
   }
 }
 @media (max-width: 900px) {

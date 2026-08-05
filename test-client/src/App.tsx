@@ -24,6 +24,7 @@ import {
   RefreshCw,
   Server,
   ShieldCheck,
+  Network,
   Sun,
   Terminal,
   Trash2,
@@ -33,11 +34,12 @@ import {
 import "./App.css";
 import { BaseUrlDialog } from "./BaseUrlDialog";
 
-type View = "instances" | "tools" | "logs" | "documentation";
+type View = "instances" | "tools" | "logs" | "connection" | "documentation";
 type Theme = "light" | "dark";
 type AuthType = "BASIC" | "NTLM" | "SSO" | "OAUTH";
 type SecretField = "password" | "clientSecret";
 type LogTimeRange = "all" | "5m" | "10m" | "1h" | "6h" | "24h" | "3d" | "custom";
+type ConnectionLocation = "local" | "lan";
 interface Company {
   id: string;
   name: string;
@@ -103,6 +105,12 @@ interface ExecutionContextOption {
 }
 interface Session {
   serverUrl: string;
+}
+interface McpConnectionInfo {
+  streamablePort: number | null;
+  apiKeyRequired: boolean;
+  hostname: string;
+  lanAddresses: string[];
 }
 interface InstanceFormData {
   name: string;
@@ -191,6 +199,14 @@ const defaultServerUrl = import.meta.env.DEV
   ? "http://127.0.0.1:5000"
   : window.location.origin;
 const normalizeServerUrl = (value: string) => value.trim().replace(/\/+$/, "");
+const isLoopbackHostname = (hostname: string) =>
+  hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+const toConnectionEndpoint = (hostname: string, protocol: string, port: number) => {
+  const endpoint = new URL(`${protocol}//${hostname}`);
+  endpoint.port = String(port);
+  endpoint.pathname = "/mcp/stream";
+  return endpoint.toString();
+};
 const themeStorageKey = "jmx-query-admin-theme";
 const adminServerUrlStorageKey = "jmx-query-admin-server-url";
 const adminServerUrlHistoryStorageKey = "jmx-query-admin-server-url-history";
@@ -548,6 +564,12 @@ function App() {
             onClick={() => setView("logs")}
           />
           <NavigationButton
+            active={view === "connection"}
+            icon={<Network size={18} />}
+            label="Connect"
+            onClick={() => setView("connection")}
+          />
+          <NavigationButton
             active={view === "documentation"}
             icon={<BookOpen size={18} />}
             label="Documentation"
@@ -568,6 +590,9 @@ function App() {
           <ToolsView instances={instances} request={request} />
         )}
         {view === "logs" && <LogsView request={request} />}
+        {view === "connection" && (
+          <ConnectionGuideView session={session} request={request} />
+        )}
         {view === "documentation" && <DocumentationView request={request} />}
       </section>
     </main>
@@ -2893,6 +2918,207 @@ function Metric({ label, value }: { label: string; value: string | number }) {
     <div className="metric">
       <span>{label}</span>
       <strong>{value}</strong>
+    </div>
+  );
+}
+
+function ConnectionGuideView({
+  session,
+  request,
+}: {
+  session: Session;
+  request: <T>(path: string, options?: RequestInit) => Promise<T>;
+}) {
+  const [connectionInfo, setConnectionInfo] = useState<McpConnectionInfo | null>(null);
+  const [location, setLocation] = useState<ConnectionLocation>("local");
+  const [harness, setHarness] = useState("vscode");
+  const [lanHostname, setLanHostname] = useState("");
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+  const loadConnectionInfo = useEffectEvent(() => {
+    void request<McpConnectionInfo>("/mcp-connection")
+      .then((info) => {
+        setConnectionInfo(info);
+        try {
+          if (isLoopbackHostname(new URL(session.serverUrl).hostname)) {
+            setLanHostname((current) => current || info.lanAddresses?.[0] || info.hostname);
+          }
+        } catch {
+          // Session URLs are validated at sign-in.
+        }
+      })
+      .catch((caught) =>
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "Unable to load MCP connection information.",
+        ),
+      );
+  });
+  useEffect(() => {
+    loadConnectionInfo();
+  }, []);
+
+  let sessionAddress: URL | null = null;
+  try {
+    sessionAddress = new URL(session.serverUrl);
+  } catch { /* Session URLs are validated at sign-in. */ }
+  const streamablePort = connectionInfo?.streamablePort
+    ?? (sessionAddress?.port
+      ? Number(sessionAddress.port)
+      : sessionAddress?.protocol === "https:" ? 443 : 80);
+  const suggestedLanHostname = sessionAddress && !isLoopbackHostname(sessionAddress.hostname)
+    ? sessionAddress.hostname
+    : connectionInfo?.lanAddresses?.[0] || connectionInfo?.hostname || "";
+  const selectedLanHostname = lanHostname.trim() || suggestedLanHostname;
+  const lanHostnameIsValid = (() => {
+    if (!selectedLanHostname || isLoopbackHostname(selectedLanHostname.toLowerCase())) return false;
+    try {
+      const candidate = new URL(`http://${selectedLanHostname}`);
+      return candidate.hostname === selectedLanHostname.toLowerCase() && !candidate.port;
+    } catch {
+      return false;
+    }
+  })();
+  const endpoint = !sessionAddress || !streamablePort
+    ? null
+    : location === "local"
+      ? toConnectionEndpoint("127.0.0.1", sessionAddress.protocol, streamablePort)
+      : lanHostnameIsValid
+        ? toConnectionEndpoint(selectedLanHostname, sessionAddress.protocol, streamablePort)
+        : null;
+  const configuration = endpoint
+    ? JSON.stringify({
+      ...(connectionInfo?.apiKeyRequired
+        ? {
+          inputs: [{
+            id: "jmx-query-api-key",
+            type: "promptString",
+            description: "JMX-QUERY MCP API key",
+            password: true,
+          }],
+        }
+        : {}),
+      servers: {
+        "jmx-query": {
+          type: "http",
+          url: endpoint,
+          ...(connectionInfo?.apiKeyRequired
+            ? { headers: { Authorization: "Bearer ${input:jmx-query-api-key}" } }
+            : {}),
+        },
+      },
+    }, null, 2)
+    : "";
+  const copyConfiguration = () => {
+    if (!configuration) return;
+    void navigator.clipboard.writeText(configuration)
+      .then(() => setCopied(true))
+      .catch(() => setError("Unable to copy the configuration to the clipboard."));
+  };
+
+  return (
+    <div className="view-layout connection-layout">
+      <header className="view-header">
+        <div>
+          <p className="eyebrow">MCP setup</p>
+          <h1>Connect</h1>
+        </div>
+      </header>
+      {error && <p className="form-error" role="alert">{error}</p>}
+      {!sessionAddress && (
+        <p className="form-error" role="alert">The current Admin server URL is invalid.</p>
+      )}
+      <section className="connection-panel" aria-label="MCP connection guide">
+        <div className="connection-controls">
+          <label>
+            Harness
+            <select value={harness} onChange={(event) => setHarness(event.target.value)}>
+              <option value="vscode">VS Code / GitHub Copilot</option>
+            </select>
+          </label>
+          <fieldset className="location-control">
+            <legend>Connect from</legend>
+            <div className="segmented-control">
+              <button
+                type="button"
+                className={location === "local" ? "selected" : ""}
+                aria-pressed={location === "local"}
+                onClick={() => setLocation("local")}
+              >
+                This MCP server
+              </button>
+              <button
+                type="button"
+                className={location === "lan" ? "selected" : ""}
+                aria-pressed={location === "lan"}
+                onClick={() => setLocation("lan")}
+              >
+                Local network
+              </button>
+            </div>
+          </fieldset>
+        </div>
+
+        {location === "lan" && (
+          <div className="lan-setup">
+            <label>
+              MCP server LAN hostname or IP address
+              <input
+                value={lanHostname}
+                list="lan-host-options"
+                placeholder={suggestedLanHostname || "e.g. bc-mcp-server or 192.168.1.20"}
+                onChange={(event) => setLanHostname(event.target.value)}
+              />
+              <datalist id="lan-host-options">
+                {connectionInfo?.lanAddresses?.map((address) => (
+                  <option key={address} value={address} />
+                ))}
+                {connectionInfo?.hostname && (
+                  <option value={connectionInfo.hostname} />
+                )}
+              </datalist>
+            </label>
+            {!lanHostnameIsValid && (
+              <p className="notice" role="status">
+                Enter a non-loopback LAN hostname or IP address to create a configuration for another computer.
+              </p>
+            )}
+            <p className="connection-note">
+              The MCP service must listen on its LAN interface or `0.0.0.0`, and Windows Firewall must allow the MCP port only from trusted local-network clients.
+            </p>
+          </div>
+        )}
+
+        {location === "local" && (
+          <p className="connection-note">
+            This configuration works only on the computer running the MCP service. It uses the loopback address and needs no LAN firewall rule.
+          </p>
+        )}
+
+        <div className="connection-summary">
+          <span>Streamable HTTP endpoint</span>
+          <code>{endpoint || "Enter a LAN hostname or IP address."}</code>
+        </div>
+        <div className="connection-instructions">
+          <div>
+            <h2>{harness === "vscode" ? "VS Code / GitHub Copilot" : "MCP client"}</h2>
+            <p>
+              Open the MCP configuration command in VS Code and add this server entry. The API key is requested securely when the client connects.
+            </p>
+          </div>
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={!configuration}
+            onClick={copyConfiguration}
+          >
+            <Copy size={17} aria-hidden="true" />
+            {copied ? "Copied" : "Copy configuration"}
+          </button>
+        </div>
+        <pre className="connection-code"><code>{configuration || ""}</code></pre>
+      </section>
     </div>
   );
 }

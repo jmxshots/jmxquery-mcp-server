@@ -6,6 +6,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
+import { hostname, networkInterfaces } from 'node:os';
 import path from 'node:path';
 import { createMcpServer } from './mcp/server.js';
 import { config } from './config.js';
@@ -197,6 +198,10 @@ const clearAdminSessionCookie = (request) => {
         attributes.push('Secure');
     return attributes.join('; ');
 };
+const getLanAddresses = () => Array.from(new Set(Object.values(networkInterfaces())
+    .flatMap(addresses => addresses || [])
+    .filter(address => address.family === 'IPv4' && !address.internal && !address.address.startsWith('169.254.'))
+    .map(address => address.address)));
 const isValidAdminApiKey = (request) => {
     const authHeader = request.headers.authorization;
     const bearerToken = typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
@@ -225,6 +230,15 @@ if (config.ADMIN_API_ENABLED) {
     fastify.get('/admin/api/session', async (_request, reply) => {
         reply.header('cache-control', 'no-store');
         return { authenticated: true };
+    });
+    fastify.get('/admin/api/mcp-connection', async (_request, reply) => {
+        reply.header('cache-control', 'no-store');
+        return {
+            streamablePort: config.MCP_STREAMABLE_PORT ?? null,
+            apiKeyRequired: Boolean(config.JMXQ_MCPAPI_KEY?.trim()),
+            hostname: hostname(),
+            lanAddresses: getLanAddresses(),
+        };
     });
     fastify.post('/admin/api/session/logout', async (request, reply) => {
         reply.header('set-cookie', clearAdminSessionCookie(request));
