@@ -7,8 +7,16 @@ import dotenv from 'dotenv';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const originalConsoleLog = console.log;
+console.log = (...args) => {
+    const [message] = args;
+    if (args.length === 1 && message?.loc === 'winsw.js ~line 77') return;
+    originalConsoleLog(...args);
+};
+
 const serviceName = 'JMX-QUERY MCP Server';
 const envFilePath = path.join(__dirname, '..', '.env');
+let updatingExistingService = false;
 
 // Build service env: inline ALL variables from the .env file directly so that
 // winsw sets them on the process — this is more reliable than relying on
@@ -45,7 +53,17 @@ svc.on('install', function () {
 
 // Check if the service is already installed
 svc.on('alreadyinstalled', function () {
-    console.log('This service is already installed.');
+    updatingExistingService = true;
+    console.log('Updating the existing service...');
+    fs.writeFileSync(path.join(svc.root, `${svc.id}.xml`), svc._xml, 'utf8');
+    const startService = () => svc.start();
+    svc.once('stop', startService);
+    svc.once('alreadystopped', startService);
+    svc.stop();
+});
+
+svc.on('start', function () {
+    console.log(updatingExistingService ? 'Service updated and restarted successfully.' : 'Service started successfully.');
 });
 
 // Log any errors

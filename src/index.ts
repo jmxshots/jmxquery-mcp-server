@@ -282,6 +282,13 @@ if (config.ADMIN_API_ENABLED) {
         };
     });
 
+    fastify.post('/admin/api/mcp-connection/api-key/reveal', async (_request, reply) => {
+        const value = config.JMXQ_MCPAPI_KEY?.trim();
+        if (!value) return reply.code(404).send({ error: 'MCP API key is not configured.' });
+        reply.header('cache-control', 'no-store');
+        return { value };
+    });
+
     fastify.post('/admin/api/session/logout', async (request, reply) => {
         reply.header('set-cookie', clearAdminSessionCookie(request));
         reply.header('cache-control', 'no-store');

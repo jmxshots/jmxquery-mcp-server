@@ -725,6 +725,13 @@ input:disabled {
 .connection-instructions .secondary-button {
   flex: 0 0 auto;
 }
+.connection-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
 .connection-code {
   background: #183a3f;
   color: #eff7f4;

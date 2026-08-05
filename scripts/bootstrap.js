@@ -1,8 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import { hostname } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
+import { createInterface } from 'node:readline/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -32,6 +34,162 @@ const parseEnv = (contents) => Object.fromEntries(contents
         return name ? [name, value] : null;
     })
     .filter(entry => entry !== null));
+
+export const getAdminUrl = (contents) => {
+    const values = parseEnv(contents);
+    const configuredHost = values.MCP_HOST || '127.0.0.1';
+    const browserHost = configuredHost === '0.0.0.0' || configuredHost === '::'
+        ? '127.0.0.1'
+        : configuredHost;
+    const urlHost = browserHost.includes(':') ? `[${browserHost}]` : browserHost;
+    return `http://${urlHost}:${values.MCP_PORT || '5000'}/admin`;
+};
+
+const setEnvValue = (contents, name, value) => {
+    const pattern = new RegExp(`^${name}=.*$`, 'm');
+    if (pattern.test(contents)) return contents.replace(pattern, `${name}=${value}`);
+    return `${contents}${contents.endsWith('\n') ? '' : '\n'}${name}=${value}\n`;
+};
+
+const isConfiguredSecret = (name, value) => Boolean(value && value !== secretPlaceholders[name]);
+
+const parsePort = (value, name) => {
+    const port = Number(value);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        throw new Error(`${name} must be a whole number from 1 to 65535.`);
+    }
+    return String(port);
+};
+
+export const applyBootstrapSettings = (contents, settings = {}, generateSecret = createSecret) => {
+    let output = contents;
+    if (settings.mcpPort !== undefined) {
+        output = setEnvValue(output, 'MCP_PORT', parsePort(settings.mcpPort, 'MCP_PORT'));
+    }
+    if (settings.streamablePort !== undefined) {
+        output = setEnvValue(
+            output,
+            'MCP_STREAMABLE_PORT',
+            parsePort(settings.streamablePort, 'MCP_STREAMABLE_PORT'),
+        );
+    }
+    const configuredPorts = parseEnv(output);
+    if (configuredPorts.MCP_PORT
+        && configuredPorts.MCP_STREAMABLE_PORT
+        && configuredPorts.MCP_PORT === configuredPorts.MCP_STREAMABLE_PORT) {
+        throw new Error('MCP_PORT and MCP_STREAMABLE_PORT must use different ports.');
+    }
+
+    const usedSecrets = new Set(Object.keys(secretPlaceholders)
+        .map(name => parseEnv(output)[name])
+        .filter(Boolean));
+    const applySecret = (name, selection) => {
+        if (selection === undefined || selection === 'keep') return;
+        let value = selection;
+        if (selection === 'generate') {
+            do value = generateSecret(); while (usedSecrets.has(value));
+        }
+        if (value.length < 32) throw new Error(`${name} must contain at least 32 characters.`);
+        usedSecrets.add(value);
+        output = setEnvValue(output, name, value);
+    };
+
+    applySecret('ADMIN_API_KEY', settings.adminApiKey);
+    applySecret('JMXQ_MCPAPI_KEY', settings.mcpApiKey);
+    return output;
+};
+
+const promptForPort = async (readline, name, currentValue) => {
+    while (true) {
+        const answer = (await readline.question(`${name} [${currentValue}]: `)).trim() || currentValue;
+        try {
+            return parsePort(answer, name);
+        } catch (error) {
+            console.log(error.message);
+        }
+    }
+};
+
+const promptForSecret = async (readline, name, currentValue) => {
+    const hasExistingValue = isConfiguredSecret(name, currentValue);
+    const defaultChoice = hasExistingValue ? 'k' : 'g';
+    while (true) {
+        const choices = hasExistingValue
+            ? '[K]eep existing, [G]enerate automatically, [E]nter manually'
+            : '[G]enerate automatically, [E]nter manually';
+        const choice = (await readline.question(`${name}: ${choices} [${defaultChoice.toUpperCase()}]: `))
+            .trim().toLowerCase() || defaultChoice;
+        if (choice === 'k' && hasExistingValue) return 'keep';
+        if (choice === 'g') return 'generate';
+        if (choice === 'e') {
+            const value = (await readline.question(`${name} (input is visible, at least 32 characters): `)).trim();
+            if (value.length >= 32) return value;
+            console.log(`${name} must contain at least 32 characters.`);
+            continue;
+        }
+        console.log('Please choose one of the displayed options.');
+    }
+};
+
+export const promptForBootstrapSettings = async (rootDirectory = projectRoot, {
+    input = process.stdin,
+    output = process.stdout,
+} = {}) => {
+    const envPath = path.join(rootDirectory, '.env');
+    const templatePath = path.join(rootDirectory, '.env.example');
+    const contents = fs.readFileSync(fs.existsSync(envPath) ? envPath : templatePath, 'utf8');
+    const values = parseEnv(contents);
+    const readline = createInterface({ input, output });
+    try {
+        console.log('Configure ports and API keys. Press Enter to accept the default.');
+        const mcpPort = await promptForPort(readline, 'MCP_PORT', values.MCP_PORT || '5000');
+        const streamablePort = await promptForPort(
+            readline,
+            'MCP_STREAMABLE_PORT',
+            values.MCP_STREAMABLE_PORT || '5001',
+        );
+        const adminApiKey = await promptForSecret(readline, 'ADMIN_API_KEY', values.ADMIN_API_KEY);
+        const mcpApiKey = await promptForSecret(readline, 'JMXQ_MCPAPI_KEY', values.JMXQ_MCPAPI_KEY);
+        console.log(isConfiguredSecret('INSTANCE_MASTER_KEY', values.INSTANCE_MASTER_KEY)
+            ? 'INSTANCE_MASTER_KEY: keeping the existing automatically generated key.'
+            : 'INSTANCE_MASTER_KEY: will be generated automatically.');
+        return { mcpPort, streamablePort, adminApiKey, mcpApiKey };
+    } finally {
+        readline.close();
+    }
+};
+
+export const enableLanAccess = (contents, machineHostname) => {
+    const values = parseEnv(contents);
+    const port = values.MCP_PORT || '5000';
+    const originHost = machineHostname.includes(':') ? `[${machineHostname}]` : machineHostname;
+    const lanOrigin = `http://${originHost}:${port}`;
+    const managedHosts = new Set(['127.0.0.1', 'localhost', machineHostname.toLowerCase()]);
+    const origins = (values.MCP_CORS_ORIGINS || '')
+        .split(',')
+        .map(value => value.trim())
+        .filter(Boolean)
+        .filter(origin => {
+            try {
+                return !managedHosts.has(new URL(origin).hostname.toLowerCase());
+            } catch {
+                return true;
+            }
+        });
+
+    origins.push(`http://127.0.0.1:${port}`, `http://localhost:${port}`);
+
+    origins.push(lanOrigin);
+
+    const configuredHost = values.MCP_HOST?.toLowerCase();
+    const listenerHost = !configuredHost || ['127.0.0.1', 'localhost', '::1'].includes(configuredHost)
+        ? '0.0.0.0'
+        : values.MCP_HOST;
+    let output = setEnvValue(contents, 'MCP_HOST', listenerHost);
+    output = setEnvValue(output, 'MCP_CORS_ORIGINS', origins.join(','));
+
+    return { contents: output, lanOrigin, changed: output !== contents };
+};
 
 export const validateConfiguration = (contents) => {
     const values = parseEnv(contents);
@@ -81,19 +239,27 @@ export const createInitialConfiguration = (template, generateSecret = createSecr
 
 export const provisionConfiguration = (
     rootDirectory = projectRoot,
-    { fileSystem = fs, generateSecret = createSecret } = {},
+    { fileSystem = fs, generateSecret = createSecret, prepareContents = contents => contents } = {},
 ) => {
     const envPath = path.join(rootDirectory, '.env');
     if (fileSystem.existsSync(envPath)) {
-        const errors = validateConfiguration(fileSystem.readFileSync(envPath, 'utf8'));
+        const existingContents = fileSystem.readFileSync(envPath, 'utf8');
+        const contents = prepareContents(existingContents);
+        const errors = validateConfiguration(contents);
         if (errors.length > 0) {
             throw new Error(`Existing .env is invalid: ${errors.join(' ')}`);
+        }
+        if (contents !== existingContents) {
+            fileSystem.writeFileSync(envPath, contents, { encoding: 'utf8', mode: 0o600 });
         }
         return { created: false, envPath };
     }
 
     const templatePath = path.join(rootDirectory, '.env.example');
-    const contents = createInitialConfiguration(fileSystem.readFileSync(templatePath, 'utf8'), generateSecret);
+    const contents = prepareContents(createInitialConfiguration(
+        fileSystem.readFileSync(templatePath, 'utf8'),
+        generateSecret,
+    ));
 
     try {
         fileSystem.writeFileSync(envPath, contents, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
@@ -138,6 +304,8 @@ export const runBootstrap = ({
     npmExecutable,
     nodeExecutable = process.execPath,
     commandShell = process.env.ComSpec || 'cmd.exe',
+    machineHostname = hostname(),
+    bootstrapSettings = {},
     runCommand: commandRunner = runCommand,
     logger = console.log,
     generateSecret = createSecret,
@@ -163,15 +331,40 @@ export const runBootstrap = ({
     executeNpm(['--prefix', 'test-client', 'ci']);
 
     logger('3/5 Preparing service configuration...');
-    const configuration = provisionConfiguration(rootDirectory, { generateSecret });
+    const prepareContents = contents => {
+        let preparedContents = contents;
+        const masterKey = parseEnv(preparedContents).INSTANCE_MASTER_KEY;
+        if (!isConfiguredSecret('INSTANCE_MASTER_KEY', masterKey)) {
+            preparedContents = setEnvValue(preparedContents, 'INSTANCE_MASTER_KEY', generateSecret());
+        }
+        return applyBootstrapSettings(preparedContents, bootstrapSettings, generateSecret);
+    };
+    const configuration = provisionConfiguration(rootDirectory, { generateSecret, prepareContents });
     logger(configuration.created ? 'Created .env with new secret values.' : 'Using existing validated .env.');
+    const configurationContents = fs.readFileSync(configuration.envPath, 'utf8');
+    const lanAccess = enableLanAccess(configurationContents, machineHostname);
+    if (lanAccess.changed) {
+        fs.writeFileSync(configuration.envPath, lanAccess.contents, { encoding: 'utf8', mode: 0o600 });
+        logger(`Enabled LAN access for ${machineHostname}.`);
+    }
 
     logger('4/5 Building server and Admin GUI...');
     executeNpm(['run', 'build']);
 
     logger('5/5 Installing and starting the Windows service...');
     execute(nodeExecutable, [path.join(rootDirectory, 'scripts', 'install-service.js')], commandOptions);
-    logger('Bootstrap completed. Open the Admin GUI to create an Instance and Company.');
+    logger('Bootstrap completed.');
+    logger(`Admin GUI (local): ${getAdminUrl(lanAccess.contents)}`);
+    logger(`Admin GUI (LAN): ${lanAccess.lanOrigin}/admin`);
+    const finalValues = parseEnv(lanAccess.contents);
+    logger(`MCP port: ${finalValues.MCP_PORT}`);
+    logger(`Streamable HTTP port: ${finalValues.MCP_STREAMABLE_PORT}`);
+    logger(`ADMIN_API_KEY: ${finalValues.ADMIN_API_KEY}`);
+    logger(`JMXQ_MCPAPI_KEY: ${finalValues.JMXQ_MCPAPI_KEY}`);
+    logger(`Keys and service configuration: ${configuration.envPath}`);
+    logger(`The Admin GUI should now be available at ${lanAccess.lanOrigin}/admin.`);
+    logger(`Port ${finalValues.MCP_PORT} may need to be allowed for private networks in Windows Firewall.`);
+    logger('Business Central passwords and client secrets are managed in the Admin GUI and stored encrypted in the Instance Store.');
 };
 
 export const parseArguments = (args) => {
@@ -182,19 +375,26 @@ export const parseArguments = (args) => {
 
 const printHelp = () => {
     console.log('Usage: npm run bootstrap');
-    console.log('Installs dependencies, creates a missing .env, builds the project, and installs the Windows service.');
+    console.log('Prompts for ports and API keys, generates the master key automatically, builds the project, and installs or updates the Windows service.');
+};
+
+const main = async () => {
+    if (parseArguments(process.argv.slice(2)).help) {
+        printHelp();
+    } else {
+        const bootstrapSettings = await promptForBootstrapSettings();
+        runBootstrap({ bootstrapSettings });
+    }
 };
 
 const isDirectExecution = process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url;
 if (isDirectExecution) {
+    main().catch(error => {
     try {
-        if (parseArguments(process.argv.slice(2)).help) {
-            printHelp();
-        } else {
-            runBootstrap();
-        }
-    } catch (error) {
         console.error(`Bootstrap failed: ${error instanceof Error ? error.message : String(error)}`);
         process.exitCode = 1;
+    } catch {
+        process.exitCode = 1;
     }
+    });
 }

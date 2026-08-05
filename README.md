@@ -39,9 +39,11 @@ For SSO, the Windows account running the service must be an authorized Business 
 npm run bootstrap
 ```
 
-The bootstrap installs dependencies, creates a missing `.env` with three distinct 96-character secrets, builds the server and Admin GUI, then installs and starts **JMX-QUERY MCP Server**. It never displays generated secrets.
+The bootstrap interactively asks for the main and Streamable HTTP ports. For `ADMIN_API_KEY` and `JMXQ_MCPAPI_KEY`, choose whether to keep an existing value, generate a new value, or enter one manually. `INSTANCE_MASTER_KEY` is always generated automatically on first setup and is preserved on later runs so the encrypted Instance Store remains readable. Bootstrap then enables LAN binding, adds the computer hostname to the browser CORS allowlist, builds the server and Admin GUI, and installs or updates **JMX-QUERY MCP Server**.
 
-An existing `.env` is never overwritten. The bootstrap validates it before building; if it still contains template placeholders, has a master key shorter than 32 characters, or enables the Admin API without an Admin key, it stops and leaves the file unchanged.
+The completion summary displays the Admin URLs, ports, `ADMIN_API_KEY`, and `JMXQ_MCPAPI_KEY`. Treat the terminal output as sensitive. The master key is not displayed. Restrict inbound access to trusted networks with Windows Firewall.
+
+An existing `.env` is validated before building. Existing keys and application settings are preserved; Bootstrap only changes a loopback `MCP_HOST` to `0.0.0.0` and adds the current computer hostname to `MCP_CORS_ORIGINS`. If the file still contains template placeholders, has a master key shorter than 32 characters, or enables the Admin API without an Admin key, Bootstrap stops before changing it.
 
 3. Open the Admin GUI at the configured address, initially `http://127.0.0.1:5000/admin`, and enter the `ADMIN_API_KEY` from `.env`. Then create your first Instance and Company. Business Central endpoints, credentials, Companies, and execution contexts are configured only in the protected Admin GUI.
 
@@ -193,7 +195,7 @@ When `JMXQ_MCPAPI_KEY` is configured, HTTP MCP clients must send `Authorization:
 
 ## VS Code and GitHub Copilot
 
-Open the Admin GUI and select **Connect** for a server-specific, copyable configuration. Choose **This MCP server** when VS Code runs on the computer hosting this service, or **Local network** when VS Code runs on another trusted LAN computer. For a loopback Admin URL, the Local network mode pre-fills a detected server LAN address and offers the server name and other detected LAN addresses. The guide never displays the MCP API key; it creates a password prompt when authentication is enabled.
+Open the Admin GUI and select **Connect** for a server-specific, copyable configuration. Choose **This MCP server** when VS Code runs on the computer hosting this service, or **Local network** when VS Code runs on another trusted LAN computer. For a loopback Admin URL, the Local network mode pre-fills a detected server LAN address and offers the server name and other detected LAN addresses. When authentication is enabled, **Show API key** opens a protected dialog that displays `JMXQ_MCPAPI_KEY` for 30 seconds and allows copying it. The key is not stored in browser storage. VS Code configurations continue to use a password prompt instead of embedding the key.
 
 Use a Streamable HTTP MCP server entry in your VS Code MCP configuration. The exact configuration file location can vary with VS Code release and workspace policy; use the MCP configuration command exposed by VS Code, then add an entry equivalent to this same-computer example:
 

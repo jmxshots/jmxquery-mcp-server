@@ -4,10 +4,14 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
+    applyBootstrapSettings,
     createInitialConfiguration,
+    enableLanAccess,
+    getAdminUrl,
     parseArguments,
     provisionConfiguration,
     runBootstrap,
+    secretPlaceholders,
     validateConfiguration,
 } from '../scripts/bootstrap.js';
 
@@ -77,6 +81,27 @@ test('provisionConfiguration rejects invalid existing configuration without chan
     });
 });
 
+test('provisionConfiguration can prepare placeholders before validating an existing file', () => {
+    withTemporaryProject(rootDirectory => {
+        const envPath = path.join(rootDirectory, '.env');
+        writeFileSync(envPath, template);
+
+        provisionConfiguration(rootDirectory, {
+            prepareContents: contents => applyBootstrapSettings(
+                contents.replace(secretPlaceholders.INSTANCE_MASTER_KEY, 'm'.repeat(96)),
+                {
+                    adminApiKey: 'generated-admin-key-that-is-at-least-32-characters',
+                    mcpApiKey: 'generated-mcp-key-that-is-at-least-32-characters',
+                },
+            ),
+        });
+
+        const contents = readFileSync(envPath, 'utf8');
+        assert.match(contents, /^INSTANCE_MASTER_KEY=m{96}$/m);
+        assert.deepEqual(validateConfiguration(contents), []);
+    });
+});
+
 test('runBootstrap executes the dependency, build, and service phases in order', () => {
     withTemporaryProject(rootDirectory => {
         writeFileSync(path.join(rootDirectory, '.env'), validConfiguration);
@@ -88,6 +113,13 @@ test('runBootstrap executes the dependency, build, and service phases in order',
             platform: 'win32',
             nodeExecutable: 'node.exe',
             commandShell: 'cmd.exe',
+            machineHostname: 'jmxquery-host',
+            bootstrapSettings: {
+                mcpPort: '5100',
+                streamablePort: '5101',
+                adminApiKey: 'new-admin-key-that-is-long-enough-to-be-secure',
+                mcpApiKey: 'new-mcp-key-that-is-long-enough-to-be-secure',
+            },
             logger: message => messages.push(message),
             runCommand: (command, args) => {
                 commands.push({ command, args });
@@ -101,8 +133,43 @@ test('runBootstrap executes the dependency, build, and service phases in order',
             { command: 'cmd.exe', args: ['/d', '/s', '/c', 'npm.cmd run build'] },
             { command: 'node.exe', args: [path.join(rootDirectory, 'scripts', 'install-service.js')] },
         ]);
-        assert.match(messages.at(-1)!, /Bootstrap completed/);
+        assert.ok(messages.includes('Bootstrap completed.'));
+        assert.ok(messages.includes('Admin GUI (local): http://127.0.0.1:5100/admin'));
+        assert.ok(messages.includes('Admin GUI (LAN): http://jmxquery-host:5100/admin'));
+        assert.ok(messages.some(message => message.includes('Windows Firewall')));
+        assert.ok(messages.includes(`Keys and service configuration: ${path.join(rootDirectory, '.env')}`));
+        assert.ok(messages.includes('MCP port: 5100'));
+        assert.ok(messages.includes('Streamable HTTP port: 5101'));
+        assert.ok(messages.includes('ADMIN_API_KEY: new-admin-key-that-is-long-enough-to-be-secure'));
+        assert.ok(messages.includes('JMXQ_MCPAPI_KEY: new-mcp-key-that-is-long-enough-to-be-secure'));
+        assert.ok(messages.some(message => message.includes('stored encrypted in the Instance Store')));
+        assert.ok(messages.every(message => !message.includes('master-key-that-is-long-enough-to-be-secure')));
     });
+});
+
+test('applyBootstrapSettings changes ports and API keys but preserves the master key', () => {
+    const configured = applyBootstrapSettings(validConfiguration, {
+        mcpPort: '6000',
+        streamablePort: '6001',
+        adminApiKey: 'generate',
+        mcpApiKey: 'manual-mcp-key-that-is-at-least-32-characters',
+    }, () => 'generated-admin-key-that-is-at-least-32-characters');
+
+    assert.match(configured, /^MCP_PORT=6000$/m);
+    assert.match(configured, /^MCP_STREAMABLE_PORT=6001$/m);
+    assert.match(configured, /^ADMIN_API_KEY=generated-admin-key-that-is-at-least-32-characters$/m);
+    assert.match(configured, /^JMXQ_MCPAPI_KEY=manual-mcp-key-that-is-at-least-32-characters$/m);
+    assert.match(configured, /^INSTANCE_MASTER_KEY=master-key-that-is-long-enough-to-be-secure$/m);
+    assert.throws(() => applyBootstrapSettings(validConfiguration, { mcpPort: '70000' }), /MCP_PORT/);
+    assert.throws(
+        () => applyBootstrapSettings(validConfiguration, { mcpPort: '6000', streamablePort: '6000' }),
+        /must use different ports/,
+    );
+});
+
+test('getAdminUrl returns a browser-usable URL for configured listener addresses', () => {
+    assert.equal(getAdminUrl('MCP_HOST=0.0.0.0\nMCP_PORT=8080'), 'http://127.0.0.1:8080/admin');
+    assert.equal(getAdminUrl('MCP_HOST=::1\nMCP_PORT=5000'), 'http://[::1]:5000/admin');
 });
 
 test('bootstrap rejects unsupported platforms and unknown arguments', () => {
@@ -113,4 +180,31 @@ test('bootstrap rejects unsupported platforms and unknown arguments', () => {
         () => createInitialConfiguration('INSTANCE_MASTER_KEY=missing'),
         /missing one or more required secret placeholders/,
     );
+});
+
+test('enableLanAccess binds externally and adds the hostname origin once', () => {
+    const initial = [
+        'MCP_HOST=127.0.0.1',
+        'MCP_PORT=5000',
+        'MCP_CORS_ORIGINS=http://127.0.0.1:5000,http://localhost:5000',
+    ].join('\n');
+
+    const first = enableLanAccess(initial, 'P4D-Python');
+    const second = enableLanAccess(first.contents, 'P4D-Python');
+
+    assert.match(first.contents, /^MCP_HOST=0\.0\.0\.0$/m);
+    assert.match(first.contents, /http:\/\/P4D-Python:5000/);
+    assert.equal(second.contents, first.contents);
+    assert.equal(second.changed, false);
+});
+
+test('enableLanAccess updates managed origins when the main port changes', () => {
+    const result = enableLanAccess([
+        'MCP_HOST=0.0.0.0',
+        'MCP_PORT=5100',
+        'MCP_CORS_ORIGINS=http://127.0.0.1:5000,http://localhost:5000,http://P4D-Python:5000,https://proxy.example',
+    ].join('\n'), 'P4D-Python');
+
+    assert.match(result.contents, /MCP_CORS_ORIGINS=https:\/\/proxy\.example,http:\/\/127\.0\.0\.1:5100,http:\/\/localhost:5100,http:\/\/P4D-Python:5100/);
+    assert.doesNotMatch(result.contents, /P4D-Python:5000/);
 });

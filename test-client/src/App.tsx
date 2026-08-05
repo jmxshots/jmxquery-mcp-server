@@ -115,6 +115,9 @@ interface McpConnectionInfo {
   workingDirectory?: string;
   nodePath?: string;
 }
+interface McpApiKeyResponse {
+  value: string;
+}
 interface InstanceFormData {
   name: string;
   description: string;
@@ -2948,6 +2951,10 @@ function ConnectionGuideView({
   const [lanHostname, setLanHostname] = useState("");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [mcpApiKey, setMcpApiKey] = useState<string | null>(null);
+  const [revealingApiKey, setRevealingApiKey] = useState(false);
+  const [apiKeyCopied, setApiKeyCopied] = useState(false);
+  const [apiKeyError, setApiKeyError] = useState("");
   const loadConnectionInfo = useEffectEvent(() => {
     void request<McpConnectionInfo>("/mcp-connection")
       .then((info) => {
@@ -2971,6 +2978,11 @@ function ConnectionGuideView({
   useEffect(() => {
     loadConnectionInfo();
   }, []);
+  useEffect(() => {
+    if (!mcpApiKey) return;
+    const timeout = window.setTimeout(() => setMcpApiKey(null), 30000);
+    return () => window.clearTimeout(timeout);
+  }, [mcpApiKey]);
 
   let sessionAddress: URL | null = null;
   try {
@@ -3057,6 +3069,23 @@ function ConnectionGuideView({
     void navigator.clipboard.writeText(configuration)
       .then(() => setCopied(true))
       .catch(() => setError("Unable to copy the configuration to the clipboard."));
+  };
+  const revealApiKey = () => {
+    setRevealingApiKey(true);
+    setApiKeyError("");
+    setApiKeyCopied(false);
+    void request<McpApiKeyResponse>("/mcp-connection/api-key/reveal", { method: "POST" })
+      .then((response) => setMcpApiKey(response.value))
+      .catch((caught) => setError(
+        caught instanceof Error ? caught.message : "Unable to reveal the MCP API key.",
+      ))
+      .finally(() => setRevealingApiKey(false));
+  };
+  const copyApiKey = () => {
+    if (!mcpApiKey) return;
+    void navigator.clipboard.writeText(mcpApiKey)
+      .then(() => setApiKeyCopied(true))
+      .catch(() => setApiKeyError("Unable to copy the MCP API key to the clipboard."));
   };
 
   return (
@@ -3177,18 +3206,60 @@ function ConnectionGuideView({
                     : "Open Claude Desktop's configuration file and add this local server entry. Restart Claude Desktop after saving."}
             </p>
           </div>
-          <button
-            className="secondary-button"
-            type="button"
-            disabled={!configuration}
-            onClick={copyConfiguration}
-          >
-            <Copy size={17} aria-hidden="true" />
-            {copied ? "Copied" : "Copy configuration"}
-          </button>
+          <div className="connection-actions">
+            {connectionInfo?.apiKeyRequired && !isClaudeDesktop && (
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={revealingApiKey}
+                onClick={revealApiKey}
+              >
+                <KeyRound size={17} aria-hidden="true" />
+                {revealingApiKey ? "Loading key" : "Show API key"}
+              </button>
+            )}
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={!configuration}
+              onClick={copyConfiguration}
+            >
+              <Copy size={17} aria-hidden="true" />
+              {copied ? "Copied" : "Copy configuration"}
+            </button>
+          </div>
         </div>
         <pre className="connection-code"><code>{configuration || ""}</code></pre>
       </section>
+      {mcpApiKey && (
+        <Modal title="MCP API key" onClose={() => setMcpApiKey(null)}>
+          <p>This value is visible for 30 seconds.</p>
+          <input
+            className="revealed-secret-value"
+            value={mcpApiKey}
+            readOnly
+            aria-label="MCP API key"
+          />
+          {apiKeyError && <p className="form-error" role="alert">{apiKeyError}</p>}
+          <div className="modal-actions">
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={copyApiKey}
+            >
+              <Copy size={17} aria-hidden="true" />
+              {apiKeyCopied ? "Copied" : "Copy API key"}
+            </button>
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => setMcpApiKey(null)}
+            >
+              Close
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
