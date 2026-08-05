@@ -32,48 +32,47 @@ For SSO, the Windows account running the service must be an authorized Business 
    Set-Location jmxquery-mcp-server
    ```
 
-2. Install dependencies and build the server and Admin GUI.
+2. Open an elevated PowerShell in the repository and run the bootstrap.
 
    ```powershell
-   npm install
-   npm run build
+  npm run bootstrap
    ```
 
-3. Create the service configuration.
+  The bootstrap installs dependencies, creates a missing `.env` with three distinct 96-character secrets, builds the server and Admin GUI, then installs and starts **JMX-QUERY MCP Server**. It never displays generated secrets.
 
-   ```powershell
-   Copy-Item .env.example .env
-   ```
+  An existing `.env` is never overwritten. The bootstrap validates it before building; if it still contains template placeholders, has a master key shorter than 32 characters, or enables the Admin API without an Admin key, it stops and leaves the file unchanged.
 
-4. Generate three distinct secrets. The following PowerShell command prints a 96-character random value.
+3. Open `http://127.0.0.1:5000/admin`, enter the generated or existing Admin API key, and create your first Instance and Company. Business Central endpoints, credentials, Companies, and execution contexts are configured only in the protected Admin GUI.
 
-   ```powershell
-   -join (1..48 | ForEach-Object { '{0:x2}' -f (Get-Random -Maximum 256) })
-   ```
+### Manual or Recovery Installation
 
-   Set these values in `.env`:
+Use this sequence when recovering an invalid `.env` or when only the existing service installer should run:
 
-   - `INSTANCE_MASTER_KEY`: encrypts the complete Instance and Company store. It must have at least 32 characters.
-   - `ADMIN_API_KEY`: protects the Admin GUI and Admin API.
-  - `JMXQ_MCPAPI_KEY`: protects HTTP MCP clients.
+```powershell
+npm install
+Copy-Item .env.example .env
+```
 
-5. Start the server for an interactive verification.
+Generate three distinct secrets. The following PowerShell command prints a 96-character random value.
 
-   ```powershell
-   npm start
-   ```
+```powershell
+-join (1..48 | ForEach-Object { '{0:x2}' -f (Get-Random -Maximum 256) })
+```
 
-  If a prior local server process is still listening on `MCP_PORT` or
-  `MCP_STREAMABLE_PORT`, stop those listeners before starting with:
+Set the values in `.env`:
 
-  ```powershell
-  npm start -- --force-ports
-  ```
+- `INSTANCE_MASTER_KEY`: encrypts the complete Instance and Company store. It must have at least 32 characters.
+- `ADMIN_API_KEY`: protects the Admin GUI and Admin API.
+- `JMXQ_MCPAPI_KEY`: protects HTTP MCP clients.
 
-  This Windows-only option forcefully terminates every process listening on
-  the configured ports.
+Then build and install the service:
 
-6. Open `http://127.0.0.1:5000/admin`, enter the Admin API key, and create your first Instance and Company.
+```powershell
+npm run build
+npm run service:install
+```
+
+For an interactive verification without installing a service, start the server with `npm start`. If a prior local server process is still listening on `MCP_PORT` or `MCP_STREAMABLE_PORT`, use `npm start -- --force-ports`; this Windows-only option forcefully terminates every process listening on the configured ports.
 
 ## Service Configuration
 
@@ -99,10 +98,9 @@ Keep `MCP_HOST=127.0.0.1` when MCP clients run on the same computer as the servi
 
 ## Windows Service
 
-Build first, then install exactly one service:
+`npm run bootstrap` is the recommended installation command and performs the build and service installation. For a configured checkout, the service-only command remains available:
 
 ```powershell
-npm run build
 npm run service:install
 ```
 

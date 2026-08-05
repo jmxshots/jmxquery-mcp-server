@@ -6,7 +6,10 @@
   "type": "module",
   "scripts": {
     "build": "tsc && npm --prefix test-client run build",
-    "test": "tsx --test test/mcp-workflow.test.ts",
+    "test": "npm run test:mcp && npm run test:bootstrap",
+    "test:mcp": "tsx --test test/mcp-workflow.test.ts",
+    "test:bootstrap": "tsx --test test/bootstrap.test.ts",
+    "bootstrap": "node scripts/bootstrap.js",
     "start": "node scripts/start.js",
     "dev": "tsx watch src/index.ts",
     "service:install": "node scripts/install-service.js",
