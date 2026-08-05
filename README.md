@@ -202,18 +202,18 @@ Use a Streamable HTTP MCP server entry in your VS Code MCP configuration. The ex
 {
   "inputs": [
     {
-      "id": "jmx-query-api-key",
+      "id": "jmxq-mcp-server-api-key",
       "type": "promptString",
       "description": "JMX-QUERY MCP API key",
       "password": true
     }
   ],
   "servers": {
-    "jmx-query": {
+    "jmxq-mcp-server": {
       "type": "http",
       "url": "http://127.0.0.1:5000/mcp/stream",
       "headers": {
-        "Authorization": "Bearer ${input:jmx-query-api-key}"
+        "Authorization": "Bearer ${input:jmxq-mcp-server-api-key}"
       }
     }
   }
@@ -242,7 +242,7 @@ When MCP authentication is enabled, replace the `<JMXQ_MCPAPI_KEY>` placeholder 
 ```json
 {
   "mcpServers": {
-    "jmx-query": {
+    "jmxq-mcp-server": {
       "url": "http://127.0.0.1:5000/mcp/stream",
       "headers": {
         "Authorization": "Bearer <JMXQ_MCPAPI_KEY>"
@@ -261,7 +261,7 @@ Add the copied entry to Claude Desktop's MCP configuration file, then restart Cl
 ```json
 {
   "mcpServers": {
-    "jmx-query": {
+    "jmxq-mcp-server": {
       "command": "C:\\Program Files\\nodejs\\node.exe",
       "args": ["build/index.js"],
       "cwd": "C:\\path\\to\\jmxquery-mcp-server",

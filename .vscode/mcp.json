@@ -1,18 +1,18 @@
 {
   "inputs": [
     {
-      "id": "jmx-query-api-key",
+        "id": "jmxq-mcp-server-api-key",
       "type": "promptString",
       "description": "JMX-QUERY MCP API key",
       "password": true
     }
   ],
   "servers": {
-    "jmx-query": {
+    "jmxq-mcp-server": {
       "type": "http",
       "url": "http://127.0.0.1:5001/mcp/stream",
       "headers": {
-        "Authorization": "Bearer ${input:jmx-query-api-key}"
+        "Authorization": "Bearer ${input:jmxq-mcp-server-api-key}"
       }
     }
   }

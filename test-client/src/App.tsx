@@ -3005,7 +3005,7 @@ function ConnectionGuideView({
     ? connectionInfo?.workingDirectory && connectionInfo.nodePath
       ? JSON.stringify({
         mcpServers: {
-          "jmx-query": {
+          "jmxq-mcp-server": {
             command: connectionInfo.nodePath,
             args: ["build/index.js"],
             cwd: connectionInfo.workingDirectory,
@@ -3021,7 +3021,7 @@ function ConnectionGuideView({
           ...(connectionInfo?.apiKeyRequired
             ? {
               inputs: [{
-                id: "jmx-query-api-key",
+                id: "jmxq-mcp-server-api-key",
                 type: "promptString",
                 description: "JMX-QUERY MCP API key",
                 password: true,
@@ -3029,18 +3029,18 @@ function ConnectionGuideView({
             }
             : {}),
           servers: {
-            "jmx-query": {
+            "jmxq-mcp-server": {
               type: "http",
               url: endpoint,
               ...(connectionInfo?.apiKeyRequired
-                ? { headers: { Authorization: "Bearer ${input:jmx-query-api-key}" } }
+                ? { headers: { Authorization: "Bearer ${input:jmxq-mcp-server-api-key}" } }
                 : {}),
             },
           },
         }
         : {
           mcpServers: {
-            "jmx-query": {
+            "jmxq-mcp-server": {
               url: endpoint,
               ...(connectionInfo?.apiKeyRequired
                 ? { headers: { Authorization: "Bearer <JMXQ_MCPAPI_KEY>" } }
