@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -8,6 +8,7 @@ import {
     createInitialConfiguration,
     enableLanAccess,
     getAdminUrl,
+    hasInstalledDependencies,
     parseArguments,
     provisionConfiguration,
     runBootstrap,
@@ -219,4 +220,60 @@ test('enableLanAccess updates managed origins when the main port changes', () =>
 
     assert.match(result.contents, /MCP_CORS_ORIGINS=https:\/\/proxy\.example,http:\/\/127\.0\.0\.1:5100,http:\/\/localhost:5100,http:\/\/P4D-Python:5100/);
     assert.doesNotMatch(result.contents, /P4D-Python:5000/);
+});
+
+test('runBootstrap skips matching dependencies and service installation when requested', () => {
+    withTemporaryProject(rootDirectory => {
+        writeFileSync(path.join(rootDirectory, '.env'), validConfiguration);
+        const commands: Array<{ command: string; args: string[] }> = [];
+        const messages: string[] = [];
+
+        runBootstrap({
+            rootDirectory,
+            platform: 'win32',
+            commandShell: 'cmd.exe',
+            machineHostname: 'jmxquery-host',
+            bootstrapSettings: { installWindowsService: false },
+            dependencyCheck: () => true,
+            logger: message => messages.push(message),
+            runCommand: (command, args) => {
+                commands.push({ command, args });
+                return { status: 0 };
+            },
+        });
+
+        assert.deepEqual(commands, [
+            { command: 'cmd.exe', args: ['/d', '/s', '/c', 'npm.cmd run build'] },
+        ]);
+        assert.ok(messages.includes('Server dependencies already match package-lock.json.'));
+        assert.ok(messages.includes('Admin GUI dependencies already match package-lock.json.'));
+        assert.ok(messages.includes('5/5 Windows service installation skipped.'));
+        assert.ok(messages.includes('Start manually: npm start'));
+    });
+});
+
+test('hasInstalledDependencies compares installed packages with the lockfile', () => {
+    withTemporaryProject(rootDirectory => {
+        const lockfile = {
+            lockfileVersion: 3,
+            packages: {
+                '': { name: 'test-project' },
+                'node_modules/example': { version: '1.0.0', integrity: 'sha512-example' },
+            },
+        };
+        mkdirSync(path.join(rootDirectory, 'node_modules'));
+        mkdirSync(path.join(rootDirectory, 'node_modules', 'example'));
+        writeFileSync(path.join(rootDirectory, 'package-lock.json'), JSON.stringify(lockfile));
+        writeFileSync(path.join(rootDirectory, 'node_modules', '.package-lock.json'), JSON.stringify(lockfile));
+
+        assert.equal(hasInstalledDependencies(rootDirectory), true);
+
+        rmSync(path.join(rootDirectory, 'node_modules', 'example'), { recursive: true });
+        assert.equal(hasInstalledDependencies(rootDirectory), false);
+
+        mkdirSync(path.join(rootDirectory, 'node_modules', 'example'));
+        lockfile.packages['node_modules/example'].version = '2.0.0';
+        writeFileSync(path.join(rootDirectory, 'package-lock.json'), JSON.stringify(lockfile));
+        assert.equal(hasInstalledDependencies(rootDirectory), false);
+    });
 });

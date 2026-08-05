@@ -39,7 +39,9 @@ For SSO, the Windows account running the service must be an authorized Business 
 npm run bootstrap
 ```
 
-The bootstrap interactively asks for the main and Streamable HTTP ports. For `ADMIN_API_KEY` and `JMXQ_MCPAPI_KEY`, choose whether to keep an existing value, generate a new value, or enter one manually. `INSTANCE_MASTER_KEY` is always generated automatically on first setup and is preserved on later runs so the encrypted Instance Store remains readable. Bootstrap then enables LAN binding, adds the computer hostname to the browser CORS allowlist, builds the server and Admin GUI, and installs or updates **JMX-QUERY MCP Server**.
+The bootstrap interactively asks for the main and Streamable HTTP ports. For `ADMIN_API_KEY` and `JMXQ_MCPAPI_KEY`, choose whether to keep an existing value, generate a new value, or enter one manually. `INSTANCE_MASTER_KEY` is always generated automatically on first setup and is preserved on later runs so the encrypted Instance Store remains readable. Bootstrap checks the installed dependencies against both lockfiles and runs `npm ci` only when they are missing or outdated. It then enables LAN binding, adds the computer hostname to the browser CORS allowlist, and builds the server and Admin GUI.
+
+Choose whether to install or update **JMX-QUERY MCP Server** as a Windows service. When declined, the build remains ready for an interactive session and Bootstrap prints `npm start` as the manual start command.
 
 The completion summary displays the Admin URLs, ports, `ADMIN_API_KEY`, and `JMXQ_MCPAPI_KEY`. Treat the terminal output as sensitive. The master key is not displayed. Restrict inbound access to trusted networks with Windows Firewall.
 

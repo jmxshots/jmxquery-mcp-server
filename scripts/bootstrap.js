@@ -62,6 +62,30 @@ const parsePort = (value, name) => {
     return String(port);
 };
 
+export const hasInstalledDependencies = (rootDirectory, fileSystem = fs) => {
+    const lockPath = path.join(rootDirectory, 'package-lock.json');
+    const installedLockPath = path.join(rootDirectory, 'node_modules', '.package-lock.json');
+    if (!fileSystem.existsSync(lockPath) || !fileSystem.existsSync(installedLockPath)) return false;
+
+    try {
+        const expectedPackages = JSON.parse(fileSystem.readFileSync(lockPath, 'utf8')).packages;
+        const installedPackages = JSON.parse(fileSystem.readFileSync(installedLockPath, 'utf8')).packages;
+        if (!expectedPackages || !installedPackages) return false;
+
+        return Object.entries(expectedPackages)
+            .filter(([packagePath]) => packagePath.startsWith('node_modules/'))
+            .every(([packagePath, expected]) => {
+                const installed = installedPackages[packagePath];
+                return installed
+                    && installed.version === expected.version
+                    && installed.integrity === expected.integrity
+                    && fileSystem.existsSync(path.join(rootDirectory, packagePath));
+            });
+    } catch {
+        return false;
+    }
+};
+
 export const applyBootstrapSettings = (contents, settings = {}, generateSecret = createSecret) => {
     let output = contents;
     if (settings.mcpPort !== undefined) {
@@ -138,6 +162,17 @@ const promptForSecret = async (readline, name, currentValue) => {
     }
 };
 
+const promptForServiceInstallation = async (readline) => {
+    while (true) {
+        const answer = (await readline.question('Install or update the Windows service? [Y/n]: '))
+            .trim()
+            .toLowerCase() || 'y';
+        if (answer === 'y' || answer === 'yes') return true;
+        if (answer === 'n' || answer === 'no') return false;
+        console.log('Please answer Y or N.');
+    }
+};
+
 export const promptForBootstrapSettings = async (rootDirectory = projectRoot, {
     input = process.stdin,
     output = process.stdout,
@@ -157,10 +192,11 @@ export const promptForBootstrapSettings = async (rootDirectory = projectRoot, {
         );
         const adminApiKey = await promptForSecret(readline, 'ADMIN_API_KEY', values.ADMIN_API_KEY);
         const mcpApiKey = await promptForSecret(readline, 'JMXQ_MCPAPI_KEY', values.JMXQ_MCPAPI_KEY);
+        const installWindowsService = await promptForServiceInstallation(readline);
         console.log(isConfiguredSecret('INSTANCE_MASTER_KEY', values.INSTANCE_MASTER_KEY)
             ? 'INSTANCE_MASTER_KEY: keeping the existing automatically generated key.'
             : 'INSTANCE_MASTER_KEY: will be generated automatically.');
-        return { mcpPort, streamablePort, adminApiKey, mcpApiKey };
+        return { mcpPort, streamablePort, adminApiKey, mcpApiKey, installWindowsService };
     } finally {
         readline.close();
     }
@@ -313,6 +349,7 @@ export const runBootstrap = ({
     commandShell = process.env.ComSpec || 'cmd.exe',
     machineHostname = hostname(),
     bootstrapSettings = {},
+    dependencyCheck = hasInstalledDependencies,
     runCommand: commandRunner = runCommand,
     logger = console.log,
     generateSecret = createSecret,
@@ -331,11 +368,22 @@ export const runBootstrap = ({
         commandOptions,
     );
 
-    logger('1/5 Installing server dependencies...');
-    executeNpm(['ci']);
+    logger('1/5 Checking server dependencies...');
+    if (dependencyCheck(rootDirectory)) {
+        logger('Server dependencies already match package-lock.json.');
+    } else {
+        logger('Installing server dependencies...');
+        executeNpm(['ci']);
+    }
 
-    logger('2/5 Installing Admin GUI dependencies...');
-    executeNpm(['--prefix', 'test-client', 'ci']);
+    const adminGuiDirectory = path.join(rootDirectory, 'test-client');
+    logger('2/5 Checking Admin GUI dependencies...');
+    if (dependencyCheck(adminGuiDirectory)) {
+        logger('Admin GUI dependencies already match package-lock.json.');
+    } else {
+        logger('Installing Admin GUI dependencies...');
+        executeNpm(['--prefix', 'test-client', 'ci']);
+    }
 
     logger('3/5 Preparing service configuration...');
     const prepareContents = contents => {
@@ -358,8 +406,13 @@ export const runBootstrap = ({
     logger('4/5 Building server and Admin GUI...');
     executeNpm(['run', 'build']);
 
-    logger('5/5 Installing and starting the Windows service...');
-    execute(nodeExecutable, [path.join(rootDirectory, 'scripts', 'install-service.js')], commandOptions);
+    const installWindowsService = bootstrapSettings.installWindowsService !== false;
+    if (installWindowsService) {
+        logger('5/5 Installing and starting the Windows service...');
+        execute(nodeExecutable, [path.join(rootDirectory, 'scripts', 'install-service.js')], commandOptions);
+    } else {
+        logger('5/5 Windows service installation skipped.');
+    }
     logger('Bootstrap completed.');
     logger(`Admin GUI (local): ${getAdminUrl(lanAccess.contents)}`);
     logger(`Admin GUI (LAN): ${lanAccess.lanOrigin}/admin`);
@@ -371,6 +424,7 @@ export const runBootstrap = ({
     logger(`Keys and service configuration: ${configuration.envPath}`);
     logger(`The Admin GUI should now be available at ${lanAccess.lanOrigin}/admin.`);
     logger(`Port ${finalValues.MCP_PORT} may need to be allowed for private networks in Windows Firewall.`);
+    if (!installWindowsService) logger('Start manually: npm start');
     logger('Business Central passwords and client secrets are managed in the Admin GUI and stored encrypted in the Instance Store.');
 };
 
@@ -382,7 +436,7 @@ export const parseArguments = (args) => {
 
 const printHelp = () => {
     console.log('Usage: npm run bootstrap');
-    console.log('Prompts for ports and API keys, generates the master key automatically, builds the project, and installs or updates the Windows service.');
+    console.log('Prompts for ports, API keys, and optional Windows service installation; generates the master key automatically and builds the project.');
 };
 
 const main = async () => {
