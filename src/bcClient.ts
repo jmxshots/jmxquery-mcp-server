@@ -240,9 +240,11 @@ export class BcClient {
         }
     }
 
-    async callAction<T = any>(serviceName: string, actionName: string, company: string, payload: Record<string, any>): Promise<T> {
+    async callAction<T = any>(serviceName: string, actionName: string, company: string | undefined, payload: Record<string, any>): Promise<T> {
         const url = new URL(`${serviceName}_${actionName}`, this.baseUrl);
-        url.searchParams.append('company', company);
+        if (company) {
+            url.searchParams.append('company', company);
+        }
 
         logger.debug({ url: url.toString(), authType: this.instance.authType }, 'Calling BC Action');
 

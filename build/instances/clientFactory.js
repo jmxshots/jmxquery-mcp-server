@@ -9,14 +9,6 @@ export class BcClientFactory {
     listInstances() {
         return this.registry.listPublicInstances();
     }
-    resolve(instanceName, companyName) {
-        const target = this.registry.getTarget(instanceName, companyName);
-        return {
-            client: this.getClient(target.instance),
-            instance: target.instance,
-            company: target.company,
-        };
-    }
     resolveEnabledInstance(instanceName) {
         const instance = this.registry.getEnabledInstance(instanceName);
         return { client: this.getClient(instance), instance };

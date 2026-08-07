@@ -1,14 +1,15 @@
 # JMX-QUERY MCP Server
 
-JMX-QUERY MCP Server is a Windows-hosted Model Context Protocol server for Business Central. One running service manages multiple Business Central **Instances** and multiple named **Companies** per instance. MCP agents use one endpoint and select their target explicitly for each Business Central tool call.
+JMX-QUERY MCP Server is a Windows-hosted Model Context Protocol server for Business Central. One running service manages multiple Business Central **Instances**, each with one technical Company used for API metadata calls. MCP agents select an Instance explicitly and choose an execution Company only when running a script.
 
-The integrated Admin GUI at `/admin` manages connections, Companies, secrets, and audit logs. This document is the Admin and User Manual rendered by that GUI after Admin authentication.
+The integrated Admin GUI at `/admin` manages connections, technical Companies, secrets, and audit logs. This document is the Admin and User Manual rendered by that GUI after Admin authentication.
 
 ## Architecture
 
 - **Instance**: one Business Central connection profile. It owns the endpoint and authentication configuration.
-- **Company**: a named target beneath an Instance. It contains the technical Business Central `company` value and a default `executionContextCode`.
-- **MCP target**: every Business Central MCP tool requires `bcInstance` and `bcCompany`.
+- **Technical Company**: one Business Central `company` value stored on each Instance. The server uses it for API information, context, table, and metadata calls.
+- **Execution Company**: a Company returned by an execution context. It is provided only to `jmxq_executeScript` and is validated by the server before script execution.
+- **MCP target**: every Business Central MCP tool requires `bcInstance`; `jmxq_executeScript` additionally requires `executionContextCode` and `executionCompany`.
 - **One service**: one Windows service exposes Stdio, SSE, and Streamable HTTP MCP transports plus the Admin GUI.
 
 The terms are deliberate: `tenantId` is only an Entra ID OAuth tenant identifier. It is not a Business Central Company.
@@ -141,24 +142,21 @@ For `BASIC`, `NTLM`, and `SSO`, enter the full Business Central OData V4 service
 | `SSO` | `https://bc-internal.contoso.local:7049/Production/ODataV4/` |
 | `OAUTH` | No Base URL field. The server builds `https://api.businesscentral.dynamics.com/v2.0/<tenantId>/<environment>/ODataV4/`. |
 
-Replace the hostname, port, server instance, and environment values with the values from your Business Central deployment. Do not add a Company to the Base URL; configure each Company separately in the **Companies** section.
+Replace the hostname, port, server instance, and environment values with the values from your Business Central deployment. Do not add a Company to the Base URL.
 
 For OAuth, use the Entra ID directory ID as `tenantId` and the Business Central Online environment name as `environment`, for example `Production` or `Sandbox`. The server derives the Business Central OData V4 base URL from those values.
 
-Use **Enable** or **Disable** to control whether an Instance can receive new MCP requests. Disabling an Instance also blocks every Company beneath it. Running requests are not aborted.
+Use **Enable** or **Disable** to control whether an Instance can receive new MCP requests. Running requests are not aborted.
 
-### Companies
+### Technical Company
 
-Select an Instance and add one or more Companies.
+Each Instance has one required **Technical company**. After entering the connection data, use **Test connection**. It validates the entered Base URL and authentication without saving the Instance. Once it succeeds, use **Load companies**; the server tests the connection again and reads the available Companies directly from Business Central. Select the technical Company from that list before creating or saving the Instance.
 
-| Field | Description |
-| --- | --- |
-| `Name` | The unique alias visible to Admin users and MCP agents. |
-| `Technical company` | Exact Business Central Company value sent in the OData `company` query parameter. |
-| `Default execution context` | Context used when an MCP tool omits `executionContextCode`. |
-| `Enabled` | Allows or blocks new requests to this Company. |
+For OAuth, the Base URL is derived from the entered Tenant ID and Environment. The same test-and-select sequence applies to all authentication types.
 
-A disabled Company blocks only that Company. It does not affect other Companies in the same Instance.
+The technical Company is the exact Business Central Company value that the server uses internally for OData API calls. The MCP client does not send this value.
+
+Execution Companies are not configured here. They are returned by `jmxq_describeExecutionContext` and are validated immediately before `jmxq_executeScript` runs.
 
 ### Secrets
 
@@ -166,7 +164,7 @@ Stored Passwords and Client Secrets are masked in normal responses. Use the reve
 
 ### Tool Tester
 
-The **Tools** view runs the registered JMX-QUERY MCP tools through the authenticated Admin API. Select a tool and, for Business Central tools, select an enabled Instance and Company. The server uses the same target resolution, execution-context handling, comment stripping, and audit logging as an MCP client call.
+The **Tools** view runs the registered JMX-QUERY MCP tools through the authenticated Admin API. Select an enabled Instance. For scripts, select an execution context, load its allowed execution Companies, then choose one. The server uses the same validation, comment stripping, and audit logging as an MCP client call.
 
 Use **Get examples** to retrieve the JMX-QUERY examples published by the selected Business Central system. This is the source for version-specific scripts, including a read-only article-count example when one is available.
 
@@ -293,42 +291,40 @@ The response keeps the complete instance list in text content for compatibility 
 
 ```json
 {
-  "enabledTargets": [
+  "enabledInstances": [
     {
-      "bcInstance": "Production",
-      "bcCompany": "Northwind",
-      "executionContextCode": "DEFAULT"
+      "bcInstance": "Production"
     }
   ],
-  "targetCount": 1,
+  "instanceCount": 1,
   "selectionRequired": false
 }
 ```
 
-Disabled Instances and Companies are never included in `enabledTargets`. If exactly one target is enabled, use it automatically. If multiple targets are enabled, ask the user which target to use. If none are enabled, tell the user that the server needs an enabled Instance and Company.
+Disabled Instances are never included in `enabledInstances`. If exactly one Instance is enabled, use it automatically. If multiple Instances are enabled, ask the user which one to use. If none are enabled, tell the user that the server needs an enabled Instance with a technical Company.
 
-Every Business Central tool requires the exact `bcInstance` and `bcCompany` values from `enabledTargets`:
+Every Business Central tool requires the exact `bcInstance` value from `enabledInstances`:
 
 ```json
 {
   "name": "jmxq_searchTables",
   "arguments": {
     "bcInstance": "Production",
-    "bcCompany": "Northwind",
+    "executionContextCode": "ALL",
     "searchPattern": "*customer*"
   }
 }
 ```
 
-`executionContextCode` is optional. If omitted, the selected Company's default is used.
+`executionContextCode` is required by context-dependent tools. Before script execution, describe the context and use one of its returned execution Companies.
 
 ```json
 {
   "name": "jmxq_executeScript",
   "arguments": {
     "bcInstance": "Production",
-    "bcCompany": "Northwind",
-    "executionContextCode": "DEFAULT",
+    "executionContextCode": "ALL",
+    "executionCompany": "Northwind",
     "script": "SELECT Customer WHERE Name LIKE '*Contoso*';"
   }
 }
@@ -336,7 +332,7 @@ Every Business Central tool requires the exact `bcInstance` and `bcCompany` valu
 
 For unknown tables, call `jmxq_searchTables` followed by `jmxq_describeTableFields`. Use `jmxq_getGrammar` or `jmxq_getExamples` before composing unfamiliar or complex scripts.
 
-Do not ask agents to retain an active Instance or Company between tool calls. Explicit targets prevent cross-request routing mistakes. `jmxq_executeScript` may run `INSERT`, `MODIFY`, `DELETE`, or `RUN CODEUNIT`; tool metadata therefore marks it as potentially destructive rather than read-only.
+Do not ask agents to retain an active Instance or execution Company between tool calls. Explicit targets prevent cross-request routing mistakes. `jmxq_executeScript` may run `INSERT`, `MODIFY`, `DELETE`, or `RUN CODEUNIT`; tool metadata therefore marks it as potentially destructive rather than read-only.
 
 ## Diagnostics
 

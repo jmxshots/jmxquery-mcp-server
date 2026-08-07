@@ -41,13 +41,6 @@ type SecretField = "password" | "clientSecret";
 type LogTimeRange = "all" | "5m" | "10m" | "1h" | "6h" | "24h" | "3d" | "custom";
 type ConnectionLocation = "local" | "lan";
 type Harness = "vscode" | "cursor" | "claudeDesktop";
-interface Company {
-  id: string;
-  name: string;
-  company: string;
-  executionContextCode: string;
-  enabled: boolean;
-}
 interface Instance {
   id: string;
   name: string;
@@ -62,7 +55,7 @@ interface Instance {
   environment?: string;
   hasPassword?: boolean;
   hasClientSecret?: boolean;
-  companies: Company[];
+  technicalCompany: string;
 }
 interface LogRecord {
   timestamp: string;
@@ -131,19 +124,19 @@ interface InstanceFormData {
   clientId: string;
   clientSecret: string;
   environment: string;
+  technicalCompany: string;
 }
-interface CompanyFormData {
-  name: string;
-  company: string;
-  executionContextCode: string;
-  enabled: boolean;
+interface ConnectionTestResponse {
+  status: "ok";
+  durationMs: number;
+  requestId?: string;
 }
 interface AvailableCompany {
   name: string;
   displayName?: string;
 }
-interface ConnectionTestResponse {
-  status: "ok";
+interface CompanyDiscoveryResponse {
+  companies: AvailableCompany[];
   durationMs: number;
   requestId?: string;
 }
@@ -194,12 +187,7 @@ const emptyInstanceForm = (): InstanceFormData => ({
   clientId: "",
   clientSecret: "",
   environment: "Production",
-});
-const emptyCompanyForm = (): CompanyFormData => ({
-  name: "",
-  company: "",
-  executionContextCode: "DEFAULT",
-  enabled: true,
+  technicalCompany: "",
 });
 const defaultServerUrl = import.meta.env.DEV
   ? "http://127.0.0.1:5000"
@@ -288,6 +276,18 @@ const getExecutionContextOptions = (
     return [];
   }
 };
+const getExecutionCompanies = (toolResult: ToolExecutionResult): string[] => {
+  const resultText = toolResult.content.map((item) => item.text).join("\n");
+  try {
+    const response = JSON.parse(resultText) as { result?: { companies?: unknown } };
+    const companies = response.result?.companies;
+    return Array.isArray(companies)
+      ? companies.filter((company): company is string => typeof company === "string" && company.trim().length > 0)
+      : [];
+  } catch {
+    return [];
+  }
+};
 const resolveEffectiveBaseUrl = (form: InstanceFormData) => {
   const baseUrl = form.authType === "OAUTH"
     ? `https://api.businesscentral.dynamics.com/v2.0/${form.tenantId.trim()}/${form.environment.trim()}/ODataV4/`
@@ -312,6 +312,7 @@ const instanceToForm = (instance: Instance): InstanceFormData => ({
   clientId: instance.clientId || "",
   clientSecret: "",
   environment: instance.environment || "Production",
+  technicalCompany: instance.technicalCompany,
 });
 const emptyLogFilterOptions = (): LogFilterOptions => ({
   instances: [],
@@ -804,12 +805,6 @@ function InstancesView({
   const [instanceForm, setInstanceForm] = useState<InstanceFormData | null>(
     null,
   );
-  const [companyForm, setCompanyForm] = useState<CompanyFormData | null>(null);
-  const [editingCompany, setEditingCompany] = useState<Company | null>(null);
-  const [availableCompanies, setAvailableCompanies] = useState<AvailableCompany[]>([]);
-  const [loadingAvailableCompanies, setLoadingAvailableCompanies] = useState(false);
-  const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
-  const [availableCompanySelection, setAvailableCompanySelection] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [revealedSecret, setRevealedSecret] =
@@ -846,6 +841,7 @@ function InstancesView({
       description: form.description,
       enabled: form.enabled,
       timeoutMs: Number(form.timeoutMs),
+      technicalCompany: form.technicalCompany,
     };
     const authFields =
       form.authType === "OAUTH"
@@ -894,36 +890,12 @@ function InstancesView({
       setRevealedSecret(null);
     });
   };
-  const submitCompany = (event: FormEvent) => {
-    event.preventDefault();
-    if (!selected || !companyForm) return;
-    const form = companyForm;
-    const payload = editingCompany
-      ? {
-          company: form.company,
-          executionContextCode: form.executionContextCode,
-          enabled: form.enabled,
-        }
-      : form;
+  const testTechnicalCompany = (instanceName: string) => {
     void perform(async () => {
-      const endpoint = editingCompany
-        ? `/instances/${encodeURIComponent(selected.name)}/companies/${encodeURIComponent(editingCompany.name)}`
-        : `/instances/${encodeURIComponent(selected.name)}/companies`;
-      await request(endpoint, {
-        method: editingCompany ? "PATCH" : "POST",
-        body: JSON.stringify(payload),
-      });
-      await reload();
-      setCompanyForm(null);
-      setEditingCompany(null);
-    });
-  };
-  const testConnection = (instanceName: string, companyName: string) => {
-    void perform(async () => {
-      const target = `${instanceName} / ${companyName}`;
+      const target = `${instanceName} technical company`;
       try {
         const result = await request<ConnectionTestResponse>(
-          `/instances/${encodeURIComponent(instanceName)}/companies/${encodeURIComponent(companyName)}/test-connection`,
+          `/instances/${encodeURIComponent(instanceName)}/test-technical-company`,
           { method: "POST" },
         );
         setConnectionTest({
@@ -938,49 +910,12 @@ function InstancesView({
           target,
           succeeded: false,
           durationMs: error?.durationMs,
-          error: error?.detail || (caught instanceof Error ? caught.message : "Connection test failed."),
+          error: error?.detail || (caught instanceof Error ? caught.message : "Technical company test failed."),
           errorType: error?.errorType,
           requestId: error?.requestId,
         });
       }
     });
-  };
-  const loadAvailableCompanies = () => {
-    if (!selected) return;
-    setLoadingAvailableCompanies(true);
-    setError("");
-    void request<AvailableCompany[]>(
-      `/instances/${encodeURIComponent(selected.name)}/available-companies`,
-    )
-      .then((companies) => {
-        setAvailableCompanies(companies);
-      })
-      .catch((caught) => {
-        setError(
-          caught instanceof Error ? caught.message : "Unable to load companies.",
-        );
-      })
-      .finally(() => setLoadingAvailableCompanies(false));
-  };
-  const openCompanyPicker = () => {
-    setCompanyPickerOpen(true);
-    setAvailableCompanySelection("");
-    setAvailableCompanies([]);
-    loadAvailableCompanies();
-  };
-  const useSelectedAvailableCompany = () => {
-    const company = availableCompanies.find(
-      (candidate) => candidate.name === availableCompanySelection,
-    );
-    if (!company) return;
-    setCompanyForm({
-      ...emptyCompanyForm(),
-      name: company.displayName || company.name,
-      company: company.name,
-    });
-    setEditingCompany(null);
-    setCompanyPickerOpen(false);
-    setAvailableCompanySelection("");
   };
   const testInstanceConnection = (instanceName: string) => {
     void perform(async () => {
@@ -1040,7 +975,6 @@ function InstancesView({
           onClick={() => {
             setSelectedName(null);
             setInstanceForm(emptyInstanceForm());
-            setCompanyForm(null);
           }}
         >
           <Plus size={17} aria-hidden="true" />
@@ -1078,7 +1012,6 @@ function InstancesView({
               onClick={() => {
                 setSelectedName(instance.name);
                 setInstanceForm(null);
-                setCompanyForm(null);
               }}
             >
               <span>
@@ -1100,6 +1033,7 @@ function InstancesView({
               hasPassword={selected?.hasPassword}
               hasClientSecret={selected?.hasClientSecret}
               busy={busy}
+              request={request}
               onChange={setInstanceForm}
               onSecretChange={editSecret}
               onReveal={revealSecret}
@@ -1131,7 +1065,7 @@ function InstancesView({
                     onClick={() => {
                       if (
                         window.confirm(
-                          `Delete instance "${selected.name}" and all its companies?`,
+                          `Delete instance "${selected.name}"?`,
                         )
                       )
                         void perform(async () => {
@@ -1159,6 +1093,8 @@ function InstancesView({
                 <dd>
                   {selected.baseUrl || selected.environment || "Not applicable"}
                 </dd>
+                <dt>Technical company</dt>
+                <dd>{selected.technicalCompany}</dd>
               </dl>
               <button
                 className="secondary-button"
@@ -1192,12 +1128,18 @@ function InstancesView({
               <button
                 className="secondary-button instance-toggle"
                 type="button"
+                disabled={busy || !selected.enabled}
+                title="Verify that the technical company can load execution contexts"
+                onClick={() => testTechnicalCompany(selected.name)}
+              >
+                <RefreshCw size={16} className={busy ? "spinning" : ""} aria-hidden="true" />
+                Test technical company
+              </button>
+              <button
+                className="secondary-button instance-toggle"
+                type="button"
                 disabled={busy}
-                title={
-                  selected.enabled
-                    ? "Block new requests to this instance and all of its companies"
-                    : "Allow new requests to this instance and its enabled companies"
-                }
+                title={selected.enabled ? "Block new requests to this instance" : "Allow new requests to this instance"}
                 aria-label={
                   selected.enabled ? "Disable instance" : "Enable instance"
                 }
@@ -1216,171 +1158,12 @@ function InstancesView({
               >
                 {selected.enabled ? "Disable instance" : "Enable instance"}
               </button>
-              <div className="subsection-heading">
-                <div>
-                  <h3>Companies</h3>
-                  <p>Execution contexts available to this instance.</p>
-                </div>
-                <button
-                  className="secondary-button"
-                  type="button"
-                  disabled={busy || !selected.enabled}
-                  title={selected.enabled
-                    ? "Load the available companies from the configured OData service"
-                    : "Enable the instance before loading companies"}
-                  onClick={() => {
-                    openCompanyPicker();
-                  }}
-                >
-                  <Plus size={16} aria-hidden="true" />
-                  Add company
-                </button>
-              </div>
-              {companyForm ? (
-                <CompanyForm
-                  form={companyForm}
-                  editing={Boolean(editingCompany)}
-                  busy={busy}
-                  onChange={setCompanyForm}
-                  onCancel={() => {
-                    setCompanyForm(null);
-                    setEditingCompany(null);
-                  }}
-                  onSubmit={submitCompany}
-                />
-              ) : (
-                <div className="company-table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Name</th>
-                        <th>Technical company</th>
-                        <th>Context</th>
-                        <th>Status</th>
-                        <th>
-                          <span className="sr-only">Actions</span>
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selected.companies.map((company) => (
-                        <tr key={company.id}>
-                          <td>{company.name}</td>
-                          <td>{company.company}</td>
-                          <td>{company.executionContextCode}</td>
-                          <td>
-                            <StatusBadge enabled={company.enabled} />
-                          </td>
-                          <td>
-                            <div className="table-actions">
-                              <button
-                                className="icon-button"
-                                type="button"
-                                title={`Test connection to ${company.name}`}
-                                aria-label={`Test connection to ${company.name}`}
-                                disabled={busy}
-                                onClick={() =>
-                                  testConnection(selected.name, company.name)
-                                }
-                              >
-                                <RefreshCw
-                                  size={16}
-                                  className={busy ? "spinning" : ""}
-                                />
-                              </button>
-                              <button
-                                className="icon-button"
-                                type="button"
-                                title={`Edit ${company.name}`}
-                                aria-label={`Edit ${company.name}`}
-                                onClick={() => {
-                                  setCompanyForm({
-                                    name: company.name,
-                                    company: company.company,
-                                    executionContextCode:
-                                      company.executionContextCode,
-                                    enabled: company.enabled,
-                                  });
-                                  setEditingCompany(company);
-                                }}
-                              >
-                                <Pencil size={16} />
-                              </button>
-                              <button
-                                className="icon-button"
-                                type="button"
-                                title={
-                                  company.enabled
-                                    ? `Disable ${company.name}`
-                                    : `Enable ${company.name}`
-                                }
-                                aria-label={
-                                  company.enabled
-                                    ? `Disable ${company.name}`
-                                    : `Enable ${company.name}`
-                                }
-                                onClick={() =>
-                                  void perform(async () => {
-                                    await request(
-                                      `/instances/${encodeURIComponent(selected.name)}/companies/${encodeURIComponent(company.name)}/enabled`,
-                                      {
-                                        method: "PATCH",
-                                        body: JSON.stringify({
-                                          enabled: !company.enabled,
-                                        }),
-                                      },
-                                    );
-                                    await reload();
-                                  })
-                                }
-                              >
-                                {company.enabled ? (
-                                  <X size={16} />
-                                ) : (
-                                  <ShieldCheck size={16} />
-                                )}
-                              </button>
-                              <button
-                                className="icon-button danger"
-                                type="button"
-                                title={`Delete ${company.name}`}
-                                aria-label={`Delete ${company.name}`}
-                                onClick={() => {
-                                  if (
-                                    window.confirm(
-                                      `Delete company "${company.name}"?`,
-                                    )
-                                  )
-                                    void perform(async () => {
-                                      await request(
-                                        `/instances/${encodeURIComponent(selected.name)}/companies/${encodeURIComponent(company.name)}`,
-                                        { method: "DELETE" },
-                                      );
-                                      await reload();
-                                    });
-                                }}
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {selected.companies.length === 0 && (
-                    <p className="empty-state">
-                      No companies configured for this instance.
-                    </p>
-                  )}
-                </div>
-              )}
             </>
           ) : (
             <div className="empty-detail">
               <Building2 size={34} aria-hidden="true" />
               <h2>Select an instance</h2>
-              <p>Choose an instance to manage its settings and companies.</p>
+              <p>Choose an instance to manage its connection and technical company.</p>
             </div>
           )}
         </section>
@@ -1405,67 +1188,6 @@ function InstancesView({
               onClick={() => setRevealedSecret(null)}
             >
               Close
-            </button>
-          </div>
-        </Modal>
-      )}
-      {companyPickerOpen && selected && (
-        <Modal
-          title="Select Business Central company"
-          onClose={() => {
-            setCompanyPickerOpen(false);
-            setAvailableCompanySelection("");
-          }}
-        >
-          <label>
-            Business Central company
-            <select
-              value={availableCompanySelection}
-              disabled={loadingAvailableCompanies}
-              title="Companies available from the configured OData service"
-              onChange={(event) =>
-                setAvailableCompanySelection(event.target.value)
-              }
-            >
-              <option value="">
-                {loadingAvailableCompanies
-                  ? "Loading companies..."
-                  : availableCompanies.length
-                    ? "Select a company"
-                    : "No companies available"}
-              </option>
-              {availableCompanies.map((company) => (
-                <option key={company.name} value={company.name}>
-                  {company.displayName && company.displayName !== company.name
-                    ? `${company.displayName} (${company.name})`
-                    : company.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="modal-actions">
-            <button
-              className="secondary-button"
-              type="button"
-              disabled={loadingAvailableCompanies}
-              title="Reload companies from Business Central"
-              onClick={loadAvailableCompanies}
-            >
-              <RefreshCw
-                size={16}
-                className={loadingAvailableCompanies ? "spinning" : ""}
-                aria-hidden="true"
-              />
-              Reload
-            </button>
-            <button
-              className="primary-button"
-              type="button"
-              disabled={!availableCompanySelection || loadingAvailableCompanies}
-              title="Use the selected company"
-              onClick={useSelectedAvailableCompany}
-            >
-              Use company
             </button>
           </div>
         </Modal>
@@ -1534,6 +1256,7 @@ function InstanceForm({
   hasPassword,
   hasClientSecret,
   busy,
+  request,
   onChange,
   onSecretChange,
   onReveal,
@@ -1545,6 +1268,7 @@ function InstanceForm({
   hasPassword?: boolean;
   hasClientSecret?: boolean;
   busy: boolean;
+  request: <T>(path: string, options?: RequestInit) => Promise<T>;
   onChange: (value: InstanceFormData) => void;
   onSecretChange: (field: SecretField, value: string) => void;
   onReveal: (field: SecretField) => void;
@@ -1554,12 +1278,90 @@ function InstanceForm({
   const [visibleSecret, setVisibleSecret] =
     useState<RevealedSecretDialog | null>(null);
   const [showBaseUrl, setShowBaseUrl] = useState(false);
+  const [connectionState, setConnectionState] = useState<"idle" | "testing" | "verified" | "loadingCompanies">("idle");
+  const [availableCompanies, setAvailableCompanies] = useState<AvailableCompany[]>([]);
+  const [connectionError, setConnectionError] = useState("");
   const effectiveBaseUrl = resolveEffectiveBaseUrl(form);
+  const connectionSignature = JSON.stringify({
+    authType: form.authType,
+    baseUrl: form.baseUrl,
+    username: form.username,
+    password: form.password,
+    tenantId: form.tenantId,
+    clientId: form.clientId,
+    clientSecret: form.clientSecret,
+    environment: form.environment,
+    timeoutMs: form.timeoutMs,
+  });
   useEffect(() => {
     if (!visibleSecret) return;
     const timeout = window.setTimeout(() => setVisibleSecret(null), 30000);
     return () => window.clearTimeout(timeout);
   }, [visibleSecret]);
+  useEffect(() => {
+    setConnectionState("idle");
+    setAvailableCompanies([]);
+    setConnectionError("");
+  }, [connectionSignature]);
+  const connectionInput = () => ({
+    authType: form.authType,
+    timeoutMs: Number(form.timeoutMs),
+    ...(form.authType === "OAUTH"
+      ? {
+          tenantId: form.tenantId,
+          clientId: form.clientId,
+          clientSecret: form.clientSecret,
+          environment: form.environment,
+        }
+      : form.authType === "SSO"
+        ? { baseUrl: form.baseUrl }
+        : {
+            baseUrl: form.baseUrl,
+            username: form.username,
+            password: form.password,
+          }),
+  });
+  const canTestConnection = Boolean(
+    effectiveBaseUrl
+    && (form.authType === "SSO"
+      || (form.authType === "OAUTH"
+        ? form.clientId && form.clientSecret && form.tenantId && form.environment
+        : form.username && form.password)),
+  );
+  const testConnection = async () => {
+    setConnectionState("testing");
+    setConnectionError("");
+    try {
+      await request<ConnectionTestResponse>("/instance-connection/test", {
+        method: "POST",
+        body: JSON.stringify(connectionInput()),
+      });
+      setConnectionState("verified");
+    } catch (caught) {
+      const detail = caught instanceof ApiRequestError ? caught.detail : undefined;
+      setConnectionError(detail || (caught instanceof Error ? caught.message : "Connection test failed."));
+      setConnectionState("idle");
+    }
+  };
+  const loadCompanies = async () => {
+    setConnectionState("loadingCompanies");
+    setConnectionError("");
+    try {
+      const response = await request<CompanyDiscoveryResponse>("/instance-connection/companies", {
+        method: "POST",
+        body: JSON.stringify(connectionInput()),
+      });
+      setAvailableCompanies(response.companies);
+      setConnectionState("verified");
+      if (!response.companies.some((company) => company.name === form.technicalCompany)) {
+        onChange({ ...form, technicalCompany: "" });
+      }
+    } catch (caught) {
+      const detail = caught instanceof ApiRequestError ? caught.detail : undefined;
+      setConnectionError(detail || (caught instanceof Error ? caught.message : "Company discovery failed."));
+      setConnectionState("idle");
+    }
+  };
   const secretInput = (
     field: SecretField,
     label: string,
@@ -1772,6 +1574,55 @@ function InstanceForm({
           </>
         )}
       </div>
+      <section className="connection-setup" aria-label="Technical company setup">
+        <div>
+          <p className="eyebrow">Technical company</p>
+          <h3>Verify connection and choose a company</h3>
+        </div>
+        <div className="connection-setup-actions">
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={!canTestConnection || connectionState === "testing" || connectionState === "loadingCompanies"}
+            title="Test the entered Business Central connection without saving this Instance"
+            onClick={() => void testConnection()}
+          >
+            <RefreshCw size={16} aria-hidden="true" />
+            {connectionState === "testing" ? "Testing connection" : "Test connection"}
+          </button>
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={connectionState !== "verified"}
+            title="Load available Business Central companies after a successful connection test"
+            onClick={() => void loadCompanies()}
+          >
+            <Building2 size={16} aria-hidden="true" />
+            {connectionState === "loadingCompanies" ? "Loading companies" : "Load companies"}
+          </button>
+        </div>
+        {connectionState === "verified" && !availableCompanies.length && !connectionError && (
+          <p className="connection-status">Connection verified. Load companies to choose the technical company.</p>
+        )}
+        {connectionError && <p className="form-error" role="alert">{connectionError}</p>}
+        <label>
+          Technical company
+          <select
+            value={form.technicalCompany}
+            title="Business Central company used internally for context, table, metadata, and information API calls"
+            disabled={availableCompanies.length === 0}
+            onChange={(event) => onChange({ ...form, technicalCompany: event.target.value })}
+            required
+          >
+            <option value="">{availableCompanies.length ? "Select a company" : "Test and load companies first"}</option>
+            {availableCompanies.map((company) => (
+              <option key={company.name} value={company.name}>
+                {company.displayName ? `${company.displayName} (${company.name})` : company.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </section>
       <div className="form-actions">
         <button
           className="secondary-button"
@@ -1794,7 +1645,7 @@ function InstanceForm({
         <button
           className="primary-button"
           type="submit"
-          disabled={busy}
+          disabled={busy || !form.technicalCompany || availableCompanies.length === 0}
           title={editing ? "Save instance changes" : "Create this instance"}
         >
           {editing ? "Save changes" : "Create instance"}
@@ -1831,92 +1682,6 @@ function InstanceForm({
   );
 }
 
-function CompanyForm({
-  form,
-  editing,
-  busy,
-  onChange,
-  onCancel,
-  onSubmit,
-}: {
-  form: CompanyFormData;
-  editing: boolean;
-  busy: boolean;
-  onChange: (value: CompanyFormData) => void;
-  onCancel: () => void;
-  onSubmit: (event: FormEvent) => void;
-}) {
-  return (
-    <form className="company-form" onSubmit={onSubmit}>
-      <div className="form-grid">
-        <label>
-          Name
-          <input
-            value={form.name}
-            disabled={editing}
-            title="Unique alias that MCP agents use as bcCompany"
-            onChange={(event) =>
-              onChange({ ...form, name: event.target.value })
-            }
-            required
-          />
-        </label>
-        <label>
-          Technical company
-          <input
-            value={form.company}
-            title="Exact Business Central Company value sent in the OData company parameter"
-            onChange={(event) =>
-              onChange({ ...form, company: event.target.value })
-            }
-            required
-          />
-        </label>
-        <label>
-          Default execution context
-          <input
-            value={form.executionContextCode}
-            title="Execution context used when an MCP tool does not provide one"
-            onChange={(event) =>
-              onChange({ ...form, executionContextCode: event.target.value })
-            }
-            required
-          />
-        </label>
-        <label className="checkbox-label">
-          <input
-            type="checkbox"
-            checked={form.enabled}
-            title="Allow new MCP requests to this Company"
-            onChange={(event) =>
-              onChange({ ...form, enabled: event.target.checked })
-            }
-          />
-          Enabled
-        </label>
-      </div>
-      <div className="form-actions">
-        <button
-          className="secondary-button"
-          type="button"
-          title="Discard unsaved Company changes"
-          onClick={onCancel}
-        >
-          Cancel
-        </button>
-        <button
-          className="primary-button"
-          type="submit"
-          disabled={busy}
-          title={editing ? "Save Company changes" : "Create this Company"}
-        >
-          {editing ? "Save company" : "Create company"}
-        </button>
-      </div>
-    </form>
-  );
-}
-
 function ToolsView({
   instances,
   request,
@@ -1927,8 +1692,10 @@ function ToolsView({
   const [tools, setTools] = useState<ToolDefinition[]>([]);
   const [selectedToolName, setSelectedToolName] = useState("");
   const [selectedInstanceName, setSelectedInstanceName] = useState("");
-  const [selectedCompanyName, setSelectedCompanyName] = useState("");
   const [executionContextCode, setExecutionContextCode] = useState("");
+  const [executionCompany, setExecutionCompany] = useState("");
+  const [availableExecutionCompanies, setAvailableExecutionCompanies] = useState<string[]>([]);
+  const [loadingExecutionCompanies, setLoadingExecutionCompanies] = useState(false);
   const [tableRef, setTableRef] = useState("");
   const [searchPattern, setSearchPattern] = useState("");
   const [script, setScript] = useState("");
@@ -1944,18 +1711,13 @@ function ToolsView({
   const [running, setRunning] = useState(false);
   const [confirmExecution, setConfirmExecution] = useState(false);
   const selectedTool = tools.find((tool) => tool.name === selectedToolName);
-  const selectedInstance = instances.find(
-    (instance) => instance.name === selectedInstanceName,
-  );
-  const enabledCompanies = (selectedInstance?.companies || []).filter(
-    (company) => company.enabled,
-  );
-  const selectedCompany = enabledCompanies.find(
-    (company) => company.name === selectedCompanyName,
-  );
-  const requiresTarget = (tool: ToolDefinition | undefined) => {
+  const requiresInstance = (tool: ToolDefinition | undefined) => {
     const required = tool?.inputSchema.required;
     return Array.isArray(required) && required.includes("bcInstance");
+  };
+  const requiresExecutionCompany = (tool: ToolDefinition | undefined) => {
+    const required = tool?.inputSchema.required;
+    return Array.isArray(required) && required.includes("executionCompany");
   };
   const acceptsExecutionContext = (tool: ToolDefinition | undefined) => {
     const properties = tool?.inputSchema.properties;
@@ -1990,21 +1752,8 @@ function ToolsView({
     );
   }, [instances, selectedInstanceName]);
 
-  useEffect(() => {
-    if (enabledCompanies.some((company) => company.name === selectedCompanyName)) {
-      return;
-    }
-    setSelectedCompanyName(enabledCompanies[0]?.name || "");
-  }, [enabledCompanies, selectedCompanyName]);
-
-  useEffect(() => {
-    if (selectedCompany) {
-      setExecutionContextCode(selectedCompany.executionContextCode);
-    }
-  }, [selectedCompany?.executionContextCode, selectedCompanyName]);
-
   const loadAvailableExecutionContexts = async () => {
-    if (!selectedInstanceName || !selectedCompanyName) return;
+    if (!selectedInstanceName) return;
 
     setLoadingExecutionContexts(true);
     setExecutionContextPickerError("");
@@ -2015,7 +1764,6 @@ function ToolsView({
           name: "jmxq_listExecutionContexts",
           arguments: {
             bcInstance: selectedInstanceName,
-            bcCompany: selectedCompanyName,
           },
         }),
       });
@@ -2038,6 +1786,28 @@ function ToolsView({
     }
   };
 
+  const loadExecutionCompanies = async () => {
+    if (!selectedInstanceName || !executionContextCode.trim()) return;
+    setLoadingExecutionCompanies(true);
+    try {
+      const toolResult = await request<ToolExecutionResult>("/tools/call", {
+        method: "POST",
+        body: JSON.stringify({
+          name: "jmxq_describeExecutionContext",
+          arguments: { bcInstance: selectedInstanceName, executionContextCode: executionContextCode.trim() },
+        }),
+      });
+      const companies = getExecutionCompanies(toolResult);
+      setAvailableExecutionCompanies(companies);
+      setExecutionCompany((current) => companies.includes(current) ? current : (companies[0] || ""));
+    } catch (caught) {
+      setAvailableExecutionCompanies([]);
+      setError(caught instanceof Error ? caught.message : "Unable to load execution companies.");
+    } finally {
+      setLoadingExecutionCompanies(false);
+    }
+  };
+
   const openExecutionContextPicker = () => {
     setExecutionContextPickerOpen(true);
     setSelectedAvailableExecutionContext("");
@@ -2047,16 +1817,21 @@ function ToolsView({
   const runTool = async (toolName = selectedToolName) => {
     const tool = tools.find((candidate) => candidate.name === toolName);
     if (!tool) return;
-    const targetRequired = requiresTarget(tool);
-    if (targetRequired && (!selectedInstanceName || !selectedCompanyName)) {
-      setError("Select an enabled Instance and Company before running this tool.");
+    const instanceRequired = requiresInstance(tool);
+    if (instanceRequired && !selectedInstanceName) {
+      setError("Select an enabled Instance before running this tool.");
+      return;
+    }
+    if (requiresExecutionCompany(tool) && !executionCompany) {
+      setError("Select an execution company allowed by the selected execution context.");
       return;
     }
 
     const args: Record<string, string> = {};
-    if (targetRequired) {
+    if (instanceRequired) {
       args.bcInstance = selectedInstanceName;
-      args.bcCompany = selectedCompanyName;
+    }
+    if (instanceRequired) {
       if (acceptsExecutionContext(tool) && executionContextCode.trim()) {
         args.executionContextCode = executionContextCode.trim();
       }
@@ -2064,6 +1839,7 @@ function ToolsView({
     if (toolName === "jmxq_describeTableFields") args.tableRef = tableRef;
     if (toolName === "jmxq_searchTables") args.searchPattern = searchPattern;
     if (toolName === "jmxq_executeScript") args.script = script;
+    if (toolName === "jmxq_executeScript") args.executionCompany = executionCompany;
 
     setRunning(true);
     setError("");
@@ -2105,8 +1881,8 @@ function ToolsView({
         <button
           className="secondary-button"
           type="button"
-          disabled={running || !selectedInstanceName || !selectedCompanyName}
-          title="Load JMX-QUERY examples from the selected Business Central company"
+          disabled={running || !selectedInstanceName}
+          title="Load JMX-QUERY examples from the selected Business Central instance"
           onClick={() => {
             setSelectedToolName("jmxq_getExamples");
             void runTool("jmxq_getExamples");
@@ -2149,9 +1925,8 @@ function ToolsView({
             {selectedTool && (
               <p className="tool-description wide">{selectedTool.description}</p>
             )}
-            {requiresTarget(selectedTool) && (
-              <>
-                <label title="Select the Business Central company, e.g. CRONUS International Ltd.">
+            {requiresInstance(selectedTool) && (
+              <label title="Select the configured Business Central instance, e.g. Sandbox.">
                   Instance
                   <select
                     value={selectedInstanceName}
@@ -2171,55 +1946,69 @@ function ToolsView({
                       </option>
                     ))}
                   </select>
-                </label>
-                <label>
-                  Company
-                  <select
-                    value={selectedCompanyName}
-                    title="Select the Business Central company, e.g. CRONUS International Ltd."
-                    onChange={(event) => setSelectedCompanyName(event.target.value)}
+              </label>
+            )}
+            {acceptsExecutionContext(selectedTool) && (
+              <div className="wide execution-context-field">
+                <div className="field-label-with-action">
+                  <label htmlFor="execution-context" title="Execution context returned by Business Central.">
+                    Execution context
+                  </label>
+                  <button
+                    className="url-assist-button"
+                    type="button"
                     disabled={running || !selectedInstanceName}
+                    title="Select an execution context available through the technical company."
+                    onClick={openExecutionContextPicker}
+                  >
+                    <ListFilter size={15} aria-hidden="true" />
+                    Select available
+                  </button>
+                </div>
+                <input
+                  id="execution-context"
+                  value={executionContextCode}
+                  title="Execution context returned by Business Central."
+                  onChange={(event) => {
+                    setExecutionContextCode(event.target.value);
+                    setExecutionCompany("");
+                    setAvailableExecutionCompanies([]);
+                  }}
+                  disabled={running}
+                  required
+                />
+              </div>
+            )}
+            {requiresExecutionCompany(selectedTool) && (
+              <label className="wide">
+                Execution company
+                <span className="field-label-with-action">
+                  <select
+                    value={executionCompany}
+                    title="Company allowed by the selected execution context for script execution."
+                    onChange={(event) => setExecutionCompany(event.target.value)}
+                    disabled={running || loadingExecutionCompanies || !executionContextCode.trim()}
                     required
                   >
-                    <option value="">Select Company</option>
-                    {enabledCompanies.map((company) => (
-                      <option key={company.id} value={company.name}>
-                        {company.name}
-                      </option>
+                    <option value="">
+                      {loadingExecutionCompanies ? "Loading execution companies..." : "Select execution company"}
+                    </option>
+                    {availableExecutionCompanies.map((company) => (
+                      <option key={company} value={company}>{company}</option>
                     ))}
                   </select>
-                </label>
-                {acceptsExecutionContext(selectedTool) && (
-                  <div className="wide execution-context-field">
-                    <div className="field-label-with-action">
-                      <label
-                        htmlFor="execution-context"
-                        title="Optional execution context. Example: DEFAULT or ALL. Leave empty to use the selected Company's default."
-                      >
-                        Execution context
-                      </label>
-                      <button
-                        className="url-assist-button"
-                        type="button"
-                        disabled={running || !selectedInstanceName || !selectedCompanyName}
-                        title="Select a listed execution context, e.g. DEFAULT or ALL."
-                        onClick={openExecutionContextPicker}
-                      >
-                        <ListFilter size={15} aria-hidden="true" />
-                        Select available
-                      </button>
-                    </div>
-                    <input
-                      id="execution-context"
-                      value={executionContextCode}
-                      title="Optional execution context. Example: DEFAULT or ALL. Leave empty to use the selected Company's default."
-                      onChange={(event) => setExecutionContextCode(event.target.value)}
-                      disabled={running}
-                      placeholder={selectedCompany?.executionContextCode || "Default context"}
-                    />
-                  </div>
-                )}
-              </>
+                  <button
+                    className="url-assist-button"
+                    type="button"
+                    disabled={running || loadingExecutionCompanies || !selectedInstanceName || !executionContextCode.trim()}
+                    title="Load the companies allowed by the selected execution context."
+                    onClick={() => void loadExecutionCompanies()}
+                  >
+                    <RefreshCw size={15} aria-hidden="true" />
+                    Load allowed
+                  </button>
+                </span>
+              </label>
             )}
             {selectedToolName === "jmxq_describeTableFields" && (
               <label
@@ -2362,7 +2151,7 @@ function ToolsView({
         >
           <p>
             This script is sent to Business Central and can change data. Review
-            the selected Instance, Company, execution context, and script before continuing.
+            the selected Instance, execution context, execution company, and script before continuing.
           </p>
           <pre><code>{script}</code></pre>
           <div className="modal-actions">

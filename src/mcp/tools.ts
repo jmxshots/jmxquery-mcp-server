@@ -17,17 +17,16 @@ export interface ToolExecutionResult {
 }
 
 const instanceSelectionProperties = {
-    bcInstance: { type: 'string', description: 'Exact enabledTargets[].bcInstance value returned by jmxq_listInstances.' },
-    bcCompany: { type: 'string', description: 'Exact enabledTargets[].bcCompany value returned by jmxq_listInstances.' },
+    bcInstance: { type: 'string', description: 'Exact enabledInstances[].bcInstance value returned by jmxq_listInstances.' },
 };
 
-const createBcToolInputSchema = (properties: Record<string, object> = {}, required: string[] = []): Tool['inputSchema'] => ({
+const createInstanceToolInputSchema = (properties: Record<string, object> = {}, required: string[] = []): Tool['inputSchema'] => ({
     type: 'object',
     properties: {
         ...instanceSelectionProperties,
         ...properties,
     },
-    required: ['bcInstance', 'bcCompany', ...required],
+    required: ['bcInstance', ...required],
 });
 
 const readOnlyAnnotations = {
@@ -45,27 +44,25 @@ const instanceListOutputSchema: NonNullable<Tool['outputSchema']> = {
             description: 'All configured public instances, including disabled instances and companies.',
             items: { type: 'object', additionalProperties: true },
         },
-        enabledTargets: {
+        enabledInstances: {
             type: 'array',
-            description: 'Enabled Business Central target pairs that may be passed to subsequent tools.',
+            description: 'Enabled Business Central instances that may be passed to subsequent tools.',
             items: {
                 type: 'object',
                 properties: {
                     bcInstance: { type: 'string' },
-                    bcCompany: { type: 'string' },
-                    executionContextCode: { type: 'string' },
                 },
-                required: ['bcInstance', 'bcCompany', 'executionContextCode'],
+                required: ['bcInstance'],
                 additionalProperties: false,
             },
         },
-        targetCount: { type: 'integer', minimum: 0 },
+        instanceCount: { type: 'integer', minimum: 0 },
         selectionRequired: {
             type: 'boolean',
-            description: 'True when multiple enabled targets exist and the user must choose one.',
+            description: 'True when multiple enabled instances exist and the user must choose one.',
         },
     },
-    required: ['instances', 'enabledTargets', 'targetCount', 'selectionRequired'],
+    required: ['instances', 'enabledInstances', 'instanceCount', 'selectionRequired'],
 };
 
 export const toolDefinitions: ToolDefinition[] = [
@@ -77,68 +74,69 @@ export const toolDefinitions: ToolDefinition[] = [
     },
     {
         name: 'jmxq_listInstances',
-        description: 'Call this before the first Business Central action. Returns all configured instances plus enabledTargets containing the exact bcInstance and bcCompany values for subsequent tools. Use the sole enabled target automatically; when multiple enabled targets exist, ask the user which one to use.',
+        description: 'Call this before the first Business Central action. Returns all configured instances plus enabledInstances containing the exact bcInstance values for subsequent tools. Use the sole enabled instance automatically; when multiple enabled instances exist, ask the user which one to use.',
         inputSchema: { type: 'object', properties: {} },
         outputSchema: instanceListOutputSchema,
         annotations: readOnlyAnnotations,
     },
     {
         name: 'jmxq_getGrammar',
-        description: 'Returns the JMX-QUERY grammar (EBNF) for the selected target. Use it before composing unfamiliar or complex scripts.',
-        inputSchema: createBcToolInputSchema(),
+        description: 'Returns the JMX-QUERY grammar (EBNF) for the selected instance. Use it before composing unfamiliar or complex scripts.',
+        inputSchema: createInstanceToolInputSchema(),
         annotations: readOnlyAnnotations,
     },
     {
         name: 'jmxq_getExamples',
-        description: 'Returns JMX-QUERY script examples for the selected target. Use examples to verify syntax before executing a script.',
-        inputSchema: createBcToolInputSchema(),
+        description: 'Returns JMX-QUERY script examples for the selected instance. Use examples to verify syntax before executing a script.',
+        inputSchema: createInstanceToolInputSchema(),
         annotations: readOnlyAnnotations,
     },
     {
         name: 'jmxq_getReadmeApi',
-        description: 'Returns the API-oriented README for JMX-QUERY.',
-        inputSchema: createBcToolInputSchema(),
+        description: 'Returns the API-oriented README for the selected instance.',
+        inputSchema: createInstanceToolInputSchema(),
         annotations: readOnlyAnnotations,
     },
     {
         name: 'jmxq_listExecutionContexts',
-        description: 'Lists execution contexts available to the selected instance and Company. This tool does not take an execution context; use a returned code in later calls, or omit it to use the selected Company default.',
-        inputSchema: createBcToolInputSchema(),
+        description: 'Lists execution contexts available to the selected instance through its configured technical company.',
+        inputSchema: createInstanceToolInputSchema(),
         annotations: readOnlyAnnotations,
     },
     {
         name: 'jmxq_describeExecutionContext',
-        description: 'Describes the execution context (tables, permissions).',
-        inputSchema: createBcToolInputSchema({
-            executionContextCode: { type: 'string', description: 'Optional context code. Defaults to the selected Company execution context.' },
-        }),
+        description: 'Describes the execution context, including execution companies allowed by Business Central.',
+        inputSchema: createInstanceToolInputSchema({
+            executionContextCode: { type: 'string', description: 'Execution context code returned by jmxq_listExecutionContexts.' },
+        }, ['executionContextCode']),
         annotations: readOnlyAnnotations,
     },
     {
         name: 'jmxq_describeTableFields',
         description: 'Describes fields and the primary key of a table. For unknown table names, call jmxq_searchTables first and use its exact table reference.',
-        inputSchema: createBcToolInputSchema({
-            executionContextCode: { type: 'string', description: 'Optional context code. Defaults to the selected Company execution context.' },
+        inputSchema: createInstanceToolInputSchema({
+            executionContextCode: { type: 'string', description: 'Execution context code returned by jmxq_listExecutionContexts.' },
             tableRef: { type: 'string', description: 'Table name or #ID (e.g. Customer, #18)' },
-        }, ['tableRef']),
+        }, ['executionContextCode', 'tableRef']),
         annotations: readOnlyAnnotations,
     },
     {
         name: 'jmxq_searchTables',
         description: 'Searches tables within an execution context. Use this before jmxq_describeTableFields when the correct Business Central table name or ID is unknown.',
-        inputSchema: createBcToolInputSchema({
-            executionContextCode: { type: 'string', description: 'Optional context code. Defaults to the selected Company execution context.' },
+        inputSchema: createInstanceToolInputSchema({
+            executionContextCode: { type: 'string', description: 'Execution context code returned by jmxq_listExecutionContexts.' },
             searchPattern: { type: 'string', description: 'Table search pattern with wildcards, e.g. *cust*' },
-        }, ['searchPattern']),
+        }, ['executionContextCode', 'searchPattern']),
         annotations: readOnlyAnnotations,
     },
     {
         name: 'jmxq_executeScript',
-        description: 'Executes a single or multi-part JMX-QUERY script against the selected target. Scripts may contain read operations or mutating INSERT, MODIFY, DELETE, and RUN CODEUNIT operations. Clearly communicate mutation risk when applicable.',
-        inputSchema: createBcToolInputSchema({
-            executionContextCode: { type: 'string', description: 'Optional context code. Defaults to the selected Company execution context.' },
+        description: 'Executes a single or multi-part JMX-QUERY script in an execution company allowed by the selected execution context. Scripts may contain read operations or mutating INSERT, MODIFY, DELETE, and RUN CODEUNIT operations. Clearly communicate mutation risk when applicable.',
+        inputSchema: createInstanceToolInputSchema({
+            executionContextCode: { type: 'string', description: 'Execution context code returned by jmxq_listExecutionContexts.' },
+            executionCompany: { type: 'string', description: 'Exact Business Central company allowed by the selected execution context.' },
             script: { type: 'string', description: 'The JMX-QUERY script to execute' },
-        }, ['script']),
+        }, ['executionContextCode', 'executionCompany', 'script']),
         annotations: {
             readOnlyHint: false,
             destructiveHint: true,
@@ -149,26 +147,19 @@ export const toolDefinitions: ToolDefinition[] = [
 ];
 
 export function createInstanceSelection(instances: PublicInstance[]): Record<string, unknown> {
-    const enabledTargets = instances
+    const enabledInstances = instances
         .filter(instance => instance.enabled)
-        .flatMap(instance => instance.companies
-            .filter(company => company.enabled)
-            .map(company => ({
-                bcInstance: instance.name,
-                bcCompany: company.name,
-                executionContextCode: company.executionContextCode,
-            })));
+        .map(instance => ({ bcInstance: instance.name }));
 
     return {
         instances,
-        enabledTargets,
-        targetCount: enabledTargets.length,
-        selectionRequired: enabledTargets.length > 1,
+        enabledInstances,
+        instanceCount: enabledInstances.length,
+        selectionRequired: enabledInstances.length > 1,
     };
 }
 
 const bcToolNames = new Set(toolDefinitions.slice(2).map(tool => tool.name));
-
 export const isRegisteredTool = (name: string): boolean => toolDefinitions.some(tool => tool.name === name);
 
 export const isBusinessCentralTool = (name: string): boolean => bcToolNames.has(name);
@@ -210,6 +201,24 @@ export function stripJmxqComments(script: string): string {
     return cleanedLines.filter(line => line.trim().length > 0).join('\n');
 }
 
+function getAllowedExecutionCompanies(description: unknown): string[] {
+    if (!description || typeof description !== 'object') return [];
+    const result = (description as { result?: unknown }).result;
+    if (!result || typeof result !== 'object') return [];
+    const companies = (result as { companies?: unknown }).companies;
+    return Array.isArray(companies)
+        ? companies.filter((company): company is string => typeof company === 'string' && company.trim().length > 0)
+        : [];
+}
+
+function getJmxqError(result: unknown): string | undefined {
+    if (!result || typeof result !== 'object') return undefined;
+    const error = (result as { error?: unknown }).error;
+    if (!error || typeof error !== 'object') return undefined;
+    const message = (error as { message?: unknown }).message;
+    return typeof message === 'string' ? message : 'JMX-QUERY rejected the request.';
+}
+
 export async function executeTool(
     name: string,
     args: Record<string, unknown>,
@@ -219,7 +228,7 @@ export async function executeTool(
     const requestId = randomUUID();
     const startedAt = Date.now();
     const isBcTool = isBusinessCentralTool(name);
-    let target: ReturnType<BcClientFactory['resolve']> | undefined;
+    let instanceTarget: ReturnType<BcClientFactory['resolveEnabledInstance']> | undefined;
     let executionContextCode: string | undefined;
     let structuredContent: Record<string, unknown> | undefined;
 
@@ -227,28 +236,27 @@ export async function executeTool(
         const getRequiredString = (argumentName: string): string => {
             const value = args[argumentName];
             if (typeof value !== 'string' || !value.trim()) {
-                throw new Error(`'${argumentName}' is required. Call jmxq_listInstances and use the exact bcInstance and bcCompany values from structuredContent.enabledTargets.`);
+                throw new Error(`'${argumentName}' is required. Call jmxq_listInstances and use the exact bcInstance value from structuredContent.enabledInstances.`);
             }
             return value;
         };
         if (isBcTool) {
             const bcInstance = getRequiredString('bcInstance');
-            const bcCompany = getRequiredString('bcCompany');
             try {
-                target = clientFactory.resolve(bcInstance, bcCompany);
+                instanceTarget = clientFactory.resolveEnabledInstance(bcInstance);
             } catch (error: any) {
-                throw new Error(`${error.message} Call jmxq_listInstances and use an enabled target exactly as returned in structuredContent.enabledTargets.`);
+                throw new Error(`${error.message} Call jmxq_listInstances and use an enabled Instance exactly as returned in structuredContent.enabledInstances.`);
             }
         }
-        executionContextCode = typeof args.executionContextCode === 'string' && args.executionContextCode.trim()
-            ? args.executionContextCode
-            : target?.company.executionContextCode;
-        const activityTarget = target ? `${target.instance.name} / ${target.company.name}` : undefined;
+        executionContextCode = typeof args.executionContextCode === 'string' && args.executionContextCode.trim() ? args.executionContextCode : undefined;
+        const executionCompany = typeof args.executionCompany === 'string' && args.executionCompany.trim() ? args.executionCompany : undefined;
+        const resolvedInstance = instanceTarget?.instance;
+        const activityTarget = executionCompany ? `${resolvedInstance?.name} / ${executionCompany}` : resolvedInstance?.name;
         const activityPrefix = activityTarget ? `${name} | ${activityTarget}` : name;
         logMcpActivity(`${activityPrefix} | started`);
         const callBcAction = async (serviceName: string, actionName: string, payload: Record<string, unknown>) => {
-            if (!target) throw new Error('A Business Central instance and company must be selected.');
-            return target.client.callAction(serviceName, actionName, target.company.company, payload);
+            if (!instanceTarget) throw new Error('A Business Central instance must be selected.');
+            return instanceTarget.client.callAction(serviceName, actionName, instanceTarget.instance.technicalCompany, payload);
         };
 
         let result: unknown;
@@ -284,7 +292,17 @@ export async function executeTool(
                 result = await callBcAction('JMXQ_ApiInfoService', 'SearchTables', { executionContextCode, searchPattern: args.searchPattern });
                 break;
             case 'jmxq_executeScript':
-                result = await callBcAction('JMXQ_ApiService', 'ExecuteScript', { executionContextCode, script: stripJmxqComments(args.script as string) });
+                if (!executionContextCode || !executionCompany) {
+                    throw new Error("'executionContextCode' and 'executionCompany' are required for jmxq_executeScript.");
+                }
+                const contextDescription = await callBcAction('JMXQ_ApiInfoService', 'DescribeExecutionContext', { executionContextCode });
+                const contextError = getJmxqError(contextDescription);
+                if (contextError) throw new Error(contextError);
+                const allowedCompanies = getAllowedExecutionCompanies(contextDescription);
+                if (!allowedCompanies.includes(executionCompany)) {
+                    throw new Error(`Execution Company '${executionCompany}' is not allowed by Execution Context '${executionContextCode}'. Allowed companies: ${allowedCompanies.join(', ') || 'none'}.`);
+                }
+                result = await instanceTarget!.client.callAction('JMXQ_ApiService', 'ExecuteScript', executionCompany, { executionContextCode, script: stripJmxqComments(args.script as string) });
                 break;
             default:
                 throw new Error(`Tool not found: ${name}`);
@@ -295,10 +313,9 @@ export async function executeTool(
         if (isBcTool) {
             try {
                 await logService.record({
-                    instanceId: target?.instance.id,
-                    instanceName: target?.instance.name,
-                    companyId: target?.company.id,
-                    companyName: target?.company.name,
+                    instanceId: resolvedInstance?.id,
+                    instanceName: resolvedInstance?.name,
+                    companyName: executionCompany || resolvedInstance?.technicalCompany,
                     tool: name,
                     status: 'success',
                     durationMs,
@@ -314,15 +331,16 @@ export async function executeTool(
         return { content: [{ type: 'text', text: resultText }], structuredContent, requestId, durationMs, executionContextCode };
     } catch (error: any) {
         const durationMs = Date.now() - startedAt;
-        const activityTarget = target ? `${target.instance.name} / ${target.company.name}` : undefined;
+        const resolvedInstance = instanceTarget?.instance;
+        const executionCompany = typeof args.executionCompany === 'string' && args.executionCompany.trim() ? args.executionCompany : undefined;
+        const activityTarget = executionCompany ? `${resolvedInstance?.name} / ${executionCompany}` : resolvedInstance?.name;
         const activityPrefix = activityTarget ? `${name} | ${activityTarget}` : name;
         if (isBcTool) {
             try {
                 await logService.record({
-                    instanceId: target?.instance.id,
-                    instanceName: target?.instance.name,
-                    companyId: target?.company.id,
-                    companyName: target?.company.name,
+                    instanceId: resolvedInstance?.id,
+                    instanceName: resolvedInstance?.name,
+                    companyName: executionCompany || resolvedInstance?.technicalCompany,
                     tool: name,
                     status: 'error',
                     durationMs,

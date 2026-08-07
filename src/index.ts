@@ -12,8 +12,10 @@ import { createMcpServer } from './mcp/server.js';
 import { config } from './config.js';
 import { pino } from 'pino';
 import { WindowsEventLogger } from './utils/eventLogger.js';
+import { BcClient } from './bcClient.js';
 import { BcClientFactory } from './instances/clientFactory.js';
 import { EncryptedInstanceRegistry } from './instances/registry.js';
+import { connectionConfigSchema, instanceSchema } from './instances/model.js';
 import { LogService } from './logging/logService.js';
 import { configureMcpActivityLogger, logMcpActivity, runWithMcpActivity, type McpActivityContext } from './mcp/activity.js';
 import { executeTool, isRegisteredTool, toolDefinitions } from './mcp/tools.js';
@@ -49,6 +51,22 @@ const logService = new LogService(
     config.LOG_RETENTION_DAYS,
     config.LOG_SCRIPT_MAX_LENGTH,
 );
+
+const createTransientConnectionClient = (input: unknown): BcClient => {
+    const connection = connectionConfigSchema.parse(input);
+    const timestamp = new Date().toISOString();
+    const instance = instanceSchema.parse({
+        ...connection,
+        id: randomUUID(),
+        name: 'Admin connection test',
+        description: '',
+        enabled: false,
+        technicalCompany: '__connection_test__',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+    });
+    return new BcClient(instance);
+};
 
 const toSafeEventMessage = (value: unknown, maxLen = 400) => {
     const raw = typeof value === 'string'
@@ -302,6 +320,131 @@ if (config.ADMIN_API_ENABLED) {
         return instanceRegistry.listPublicInstances();
     });
 
+    fastify.post('/admin/api/instances', async (request, reply) => {
+        try {
+            const instance = await instanceRegistry.createInstance(request.body);
+            reply.header('cache-control', 'no-store');
+            return reply.code(201).send(instance);
+        } catch (error) {
+            return sendAdminError(reply, error);
+        }
+    });
+
+    fastify.patch('/admin/api/instances/:instanceName', async (request, reply) => {
+        try {
+            const { instanceName } = request.params as { instanceName: string };
+            const instance = await instanceRegistry.updateInstance(instanceName, request.body);
+            reply.header('cache-control', 'no-store');
+            return instance;
+        } catch (error) {
+            return sendAdminError(reply, error);
+        }
+    });
+
+    fastify.patch('/admin/api/instances/:instanceName/enabled', async (request, reply) => {
+        try {
+            const { instanceName } = request.params as { instanceName: string };
+            const { enabled } = request.body as { enabled?: unknown };
+            const instance = await instanceRegistry.setInstanceEnabled(instanceName, enabled as boolean);
+            reply.header('cache-control', 'no-store');
+            return instance;
+        } catch (error) {
+            return sendAdminError(reply, error);
+        }
+    });
+
+    fastify.delete('/admin/api/instances/:instanceName', async (request, reply) => {
+        try {
+            const { instanceName } = request.params as { instanceName: string };
+            await instanceRegistry.deleteInstance(instanceName);
+            return reply.code(204).send();
+        } catch (error) {
+            return sendAdminError(reply, error);
+        }
+    });
+
+    fastify.post('/admin/api/instance-connection/test', async (request, reply) => {
+        const startedAt = Date.now();
+        const requestId = randomUUID();
+        try {
+            await createTransientConnectionClient(request.body).testConnection();
+            reply.header('cache-control', 'no-store');
+            return { status: 'ok', durationMs: Date.now() - startedAt, requestId };
+        } catch (error: any) {
+            return reply.code(400).send({
+                error: 'Connection test failed.',
+                detail: error?.message || 'Unknown connection error.',
+                errorType: error?.name || 'Error',
+                durationMs: Date.now() - startedAt,
+                requestId,
+            });
+        }
+    });
+
+    fastify.post('/admin/api/instance-connection/companies', async (request, reply) => {
+        const startedAt = Date.now();
+        const requestId = randomUUID();
+        try {
+            const client = createTransientConnectionClient(request.body);
+            await client.testConnection();
+            const companies = await client.listCompanies();
+            reply.header('cache-control', 'no-store');
+            return { companies, durationMs: Date.now() - startedAt, requestId };
+        } catch (error: any) {
+            return reply.code(400).send({
+                error: 'Company discovery failed.',
+                detail: error?.message || 'Unable to connect to Business Central.',
+                errorType: error?.name || 'Error',
+                durationMs: Date.now() - startedAt,
+                requestId,
+            });
+        }
+    });
+
+    fastify.post('/admin/api/instances/:instanceName/test-connection', async (request, reply) => {
+        const { instanceName } = request.params as { instanceName: string };
+        const requestId = randomUUID();
+        const startedAt = Date.now();
+        let target: ReturnType<typeof bcClientFactory.resolveEnabledInstance> | undefined;
+
+        try {
+            target = bcClientFactory.resolveEnabledInstance(instanceName);
+            await target.client.testConnection();
+            await logService.record({
+                instanceId: target.instance.id,
+                instanceName: target.instance.name,
+                companyName: target.instance.technicalCompany,
+                tool: 'admin_testInstanceConnection',
+                status: 'success',
+                durationMs: Date.now() - startedAt,
+                requestId,
+            }).catch(() => undefined);
+
+            reply.header('cache-control', 'no-store');
+            return { status: 'ok', durationMs: Date.now() - startedAt, requestId };
+        } catch (error: any) {
+            await logService.record({
+                instanceId: target?.instance.id,
+                instanceName: target?.instance.name || instanceName,
+                companyName: target?.instance.technicalCompany,
+                tool: 'admin_testInstanceConnection',
+                status: 'error',
+                durationMs: Date.now() - startedAt,
+                requestId,
+                errorType: error?.name || 'Error',
+                errorMessage: error?.message || 'Connection test failed.',
+            }).catch(() => undefined);
+
+            return reply.code(400).send({
+                error: 'Connection test failed.',
+                detail: error?.message || 'Unknown connection error.',
+                errorType: error?.name || 'Error',
+                durationMs: Date.now() - startedAt,
+                requestId,
+            });
+        }
+    });
+
     fastify.get('/admin/api/tools', async (_request, reply) => {
         reply.header('cache-control', 'no-store');
         return toolDefinitions;
@@ -322,49 +465,7 @@ if (config.ADMIN_API_ENABLED) {
         return result;
     });
 
-    fastify.post('/admin/api/instances', async (request, reply) => {
-        try {
-            const instance = await instanceRegistry.createInstance(request.body);
-            reply.code(201).header('cache-control', 'no-store');
-            return instance;
-        } catch (error) {
-            return sendAdminError(reply, error);
-        }
-    });
-
-    fastify.patch('/admin/api/instances/:instanceName', async (request, reply) => {
-        try {
-            const instance = await instanceRegistry.updateInstance((request.params as any).instanceName, request.body);
-            reply.header('cache-control', 'no-store');
-            return instance;
-        } catch (error) {
-            return sendAdminError(reply, error);
-        }
-    });
-
-    fastify.delete('/admin/api/instances/:instanceName', async (request, reply) => {
-        try {
-            await instanceRegistry.deleteInstance((request.params as any).instanceName);
-            return reply.code(204).send();
-        } catch (error) {
-            return sendAdminError(reply, error);
-        }
-    });
-
-    fastify.patch('/admin/api/instances/:instanceName/enabled', async (request, reply) => {
-        try {
-            const instance = await instanceRegistry.setInstanceEnabled(
-                (request.params as any).instanceName,
-                (request.body as any)?.enabled,
-            );
-            reply.header('cache-control', 'no-store');
-            return instance;
-        } catch (error) {
-            return sendAdminError(reply, error);
-        }
-    });
-
-    fastify.post('/admin/api/instances/:instanceName/test-connection', async (request, reply) => {
+    fastify.post('/admin/api/instances/:instanceName/test-technical-company', async (request, reply) => {
         const { instanceName } = request.params as { instanceName: string };
         const requestId = randomUUID();
         const startedAt = Date.now();
@@ -372,43 +473,35 @@ if (config.ADMIN_API_ENABLED) {
 
         try {
             target = bcClientFactory.resolveEnabledInstance(instanceName);
-            await target.client.testConnection();
-
-            try {
-                await logService.record({
-                    instanceId: target.instance.id,
-                    instanceName: target.instance.name,
-                    tool: 'admin_testInstanceConnection',
-                    status: 'success',
-                    durationMs: Date.now() - startedAt,
-                    requestId,
-                });
-            } catch {
-                logger.error({ tool: 'admin_testInstanceConnection', requestId }, 'Admin instance connection test log write failed');
-            }
+            await target.client.callAction('JMXQ_ApiInfoService', 'ListExecutionContexts', target.instance.technicalCompany, {});
+            await logService.record({
+                instanceId: target.instance.id,
+                instanceName: target.instance.name,
+                companyName: target.instance.technicalCompany,
+                tool: 'admin_testTechnicalCompany',
+                status: 'success',
+                durationMs: Date.now() - startedAt,
+                requestId,
+            }).catch(() => undefined);
 
             reply.header('cache-control', 'no-store');
             return { status: 'ok', durationMs: Date.now() - startedAt };
         } catch (error: any) {
-            try {
-                await logService.record({
-                    instanceId: target?.instance.id,
-                    instanceName: target?.instance.name || instanceName,
-                    tool: 'admin_testInstanceConnection',
-                    status: 'error',
-                    durationMs: Date.now() - startedAt,
-                    requestId,
-                    errorType: error?.name || 'Error',
-                    errorMessage: error?.message || 'Connection test failed.',
-                });
-            } catch {
-                logger.error({ tool: 'admin_testInstanceConnection', requestId }, 'Admin instance connection test failure log write failed');
-            }
+            await logService.record({
+                instanceId: target?.instance.id,
+                instanceName: target?.instance.name || instanceName,
+                companyName: target?.instance.technicalCompany,
+                tool: 'admin_testTechnicalCompany',
+                status: 'error',
+                durationMs: Date.now() - startedAt,
+                requestId,
+                errorType: error?.name || 'Error',
+                errorMessage: error?.message || 'Technical company test failed.',
+            }).catch(() => undefined);
 
-            logger.error({ tool: 'admin_testInstanceConnection', requestId, errorType: error?.name || 'Error' }, 'Admin instance connection test failed');
             return reply.code(400).send({
-                error: 'Connection test failed.',
-                detail: error?.message || 'Unknown connection error.',
+                error: 'Technical company test failed.',
+                detail: error?.message || 'Unknown error.',
                 errorType: error?.name || 'Error',
                 durationMs: Date.now() - startedAt,
                 requestId,
@@ -434,110 +527,6 @@ if (config.ADMIN_API_ENABLED) {
         }
     });
 
-    fastify.post('/admin/api/instances/:instanceName/companies', async (request, reply) => {
-        try {
-            const company = await instanceRegistry.createCompany((request.params as any).instanceName, request.body);
-            reply.code(201).header('cache-control', 'no-store');
-            return company;
-        } catch (error) {
-            return sendAdminError(reply, error);
-        }
-    });
-
-    fastify.patch('/admin/api/instances/:instanceName/companies/:companyName', async (request, reply) => {
-        try {
-            const company = await instanceRegistry.updateCompany(
-                (request.params as any).instanceName,
-                (request.params as any).companyName,
-                request.body,
-            );
-            reply.header('cache-control', 'no-store');
-            return company;
-        } catch (error) {
-            return sendAdminError(reply, error);
-        }
-    });
-
-    fastify.delete('/admin/api/instances/:instanceName/companies/:companyName', async (request, reply) => {
-        try {
-            await instanceRegistry.deleteCompany((request.params as any).instanceName, (request.params as any).companyName);
-            return reply.code(204).send();
-        } catch (error) {
-            return sendAdminError(reply, error);
-        }
-    });
-
-    fastify.patch('/admin/api/instances/:instanceName/companies/:companyName/enabled', async (request, reply) => {
-        try {
-            const company = await instanceRegistry.setCompanyEnabled(
-                (request.params as any).instanceName,
-                (request.params as any).companyName,
-                (request.body as any)?.enabled,
-            );
-            reply.header('cache-control', 'no-store');
-            return company;
-        } catch (error) {
-            return sendAdminError(reply, error);
-        }
-    });
-
-    fastify.post('/admin/api/instances/:instanceName/companies/:companyName/test-connection', async (request, reply) => {
-        const { instanceName, companyName } = request.params as { instanceName: string; companyName: string };
-        const requestId = randomUUID();
-        const startedAt = Date.now();
-        let target: ReturnType<typeof bcClientFactory.resolve> | undefined;
-
-        try {
-            target = bcClientFactory.resolve(instanceName, companyName);
-            await target.client.callAction('JMXQ_ApiInfoService', 'ListExecutionContexts', target.company.company, {});
-
-            try {
-                await logService.record({
-                    instanceId: target.instance.id,
-                    instanceName: target.instance.name,
-                    companyId: target.company.id,
-                    companyName: target.company.name,
-                    tool: 'admin_testConnection',
-                    status: 'success',
-                    durationMs: Date.now() - startedAt,
-                    requestId,
-                    executionContextCode: target.company.executionContextCode,
-                });
-            } catch {
-                logger.error({ tool: 'admin_testConnection', requestId }, 'Admin connection test log write failed');
-            }
-
-            reply.header('cache-control', 'no-store');
-            return { status: 'ok', durationMs: Date.now() - startedAt };
-        } catch (error: any) {
-            try {
-                await logService.record({
-                    instanceId: target?.instance.id,
-                    instanceName: target?.instance.name || instanceName,
-                    companyId: target?.company.id,
-                    companyName: target?.company.name || companyName,
-                    tool: 'admin_testConnection',
-                    status: 'error',
-                    durationMs: Date.now() - startedAt,
-                    requestId,
-                    executionContextCode: target?.company.executionContextCode,
-                    errorType: error?.name || 'Error',
-                    errorMessage: error?.message || 'Connection test failed.',
-                });
-            } catch {
-                logger.error({ tool: 'admin_testConnection', requestId }, 'Admin connection test failure log write failed');
-            }
-
-            logger.error({ tool: 'admin_testConnection', requestId, errorType: error?.name || 'Error' }, 'Admin connection test failed');
-            return reply.code(400).send({
-                error: 'Connection test failed.',
-                detail: error?.message || 'Unknown connection error.',
-                errorType: error?.name || 'Error',
-                durationMs: Date.now() - startedAt,
-                requestId,
-            });
-        }
-    });
 
     fastify.post('/admin/api/instances/:instanceName/secrets/:field/reveal', async (request, reply) => {
         const field = (request.params as any).field;

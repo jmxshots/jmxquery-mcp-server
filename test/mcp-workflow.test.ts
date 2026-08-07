@@ -13,7 +13,7 @@ const timestamp = '2026-08-04T00:00:00.000Z';
 const createInstance = (
     name: string,
     enabled: boolean,
-    companies: Array<{ name: string; enabled: boolean }>,
+    technicalCompany: string,
 ): PublicInstance => ({
     id: crypto.randomUUID(),
     name,
@@ -24,45 +24,57 @@ const createInstance = (
     updatedAt: timestamp,
     authType: 'SSO',
     baseUrl: `https://${name.toLowerCase()}.example.test/odata`,
-    companies: companies.map(company => ({
-        id: crypto.randomUUID(),
-        name: company.name,
-        company: company.name,
-        executionContextCode: 'DEFAULT',
-        enabled: company.enabled,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-    })),
+    technicalCompany,
 });
 
-test('instance selection exposes only enabled target pairs', () => {
+test('instance selection exposes only enabled instances', () => {
     const instances = [
-        createInstance('Production', true, [
-            { name: 'Northwind', enabled: true },
-            { name: 'Disabled Company', enabled: false },
-        ]),
-        createInstance('Sandbox', true, [{ name: 'Cronus', enabled: true }]),
-        createInstance('Disabled Instance', false, [{ name: 'Hidden', enabled: true }]),
+        createInstance('Production', true, 'Northwind'),
+        createInstance('Sandbox', true, 'Cronus'),
+        createInstance('Disabled Instance', false, 'Hidden'),
     ];
 
     const selection = createInstanceSelection(instances);
 
-    assert.deepEqual(selection.enabledTargets, [
-        { bcInstance: 'Production', bcCompany: 'Northwind', executionContextCode: 'DEFAULT' },
-        { bcInstance: 'Sandbox', bcCompany: 'Cronus', executionContextCode: 'DEFAULT' },
+    assert.deepEqual(selection.enabledInstances, [
+        { bcInstance: 'Production' },
+        { bcInstance: 'Sandbox' },
     ]);
-    assert.equal(selection.targetCount, 2);
+    assert.equal(selection.instanceCount, 2);
     assert.equal(selection.selectionRequired, true);
     assert.equal(createInstanceSelection([instances[0]]).selectionRequired, false);
     assert.equal(createInstanceSelection([]).selectionRequired, false);
 });
 
 test('MCP protocol teaches the workflow and returns structured targets', async () => {
-    const instances = [createInstance('Production', true, [{ name: 'Northwind', enabled: true }])];
+    const instances = [createInstance('Production', true, 'Northwind')];
+    let grammarCompany: string | undefined;
+    let executedScript = false;
     const clientFactory = {
         listInstances: () => instances,
         resolve: () => {
             throw new Error('Unexpected target resolution.');
+        },
+        resolveEnabledInstance: (instanceName: string) => {
+            if (instanceName !== 'Production') {
+                throw new Error(`Instance '${instanceName}' was not found.`);
+            }
+            return {
+                instance: instances[0],
+                client: {
+                    callAction: async (_serviceName: string, actionName: string, company: string | undefined) => {
+                        grammarCompany = company;
+                        if (actionName === 'DescribeExecutionContext') {
+                            return { result: { companies: ['Allowed'] } };
+                        }
+                        if (actionName === 'ExecuteScript') {
+                            executedScript = true;
+                            return { result: [] };
+                        }
+                        return 'grammar';
+                    },
+                },
+            };
         },
     } as unknown as BcClientFactory;
     const logService = {
@@ -81,33 +93,56 @@ test('MCP protocol teaches the workflow and returns structured targets', async (
 
         const listedTools = await client.listTools();
         const listInstancesTool = listedTools.tools.find(tool => tool.name === 'jmxq_listInstances');
+        const grammarTool = listedTools.tools.find(tool => tool.name === 'jmxq_getGrammar');
         const executeScriptTool = listedTools.tools.find(tool => tool.name === 'jmxq_executeScript');
         assert.equal(listInstancesTool?.annotations?.readOnlyHint, true);
         assert.ok(listInstancesTool?.outputSchema);
+        assert.deepEqual(grammarTool?.inputSchema.required, ['bcInstance']);
+        assert.deepEqual(executeScriptTool?.inputSchema.required, ['bcInstance', 'executionContextCode', 'executionCompany', 'script']);
         assert.equal(executeScriptTool?.annotations?.readOnlyHint, false);
         assert.equal(executeScriptTool?.annotations?.destructiveHint, true);
 
         const instanceResult = await client.callTool({ name: 'jmxq_listInstances', arguments: {} });
         assert.deepEqual(instanceResult.structuredContent, {
             instances,
-            enabledTargets: [
-                { bcInstance: 'Production', bcCompany: 'Northwind', executionContextCode: 'DEFAULT' },
+            enabledInstances: [
+                { bcInstance: 'Production' },
             ],
-            targetCount: 1,
+            instanceCount: 1,
             selectionRequired: false,
         });
         assert.equal(JSON.parse((instanceResult.content[0] as { text: string }).text)[0].name, 'Production');
 
         const missingTargetResult = await client.callTool({ name: 'jmxq_getGrammar', arguments: {} });
         assert.equal(missingTargetResult.isError, true);
-        assert.match((missingTargetResult.content[0] as { text: string }).text, /structuredContent\.enabledTargets/);
+        assert.match((missingTargetResult.content[0] as { text: string }).text, /structuredContent\.enabledInstances/);
+
+        const grammarResult = await client.callTool({
+            name: 'jmxq_getGrammar',
+            arguments: { bcInstance: 'Production' },
+        });
+        assert.equal(grammarResult.isError, undefined);
+        assert.equal(grammarCompany, 'Northwind');
+
+        const blockedExecutionResult = await client.callTool({
+            name: 'jmxq_executeScript',
+            arguments: {
+                bcInstance: 'Production',
+                executionContextCode: 'ALL',
+                executionCompany: 'Blocked',
+                script: 'FROM Item AS i | SELECT COUNT(*) AS ArticleCount',
+            },
+        });
+        assert.equal(blockedExecutionResult.isError, true);
+        assert.match((blockedExecutionResult.content[0] as { text: string }).text, /not allowed/);
+        assert.equal(executedScript, false);
 
         const invalidTargetResult = await client.callTool({
             name: 'jmxq_getGrammar',
-            arguments: { bcInstance: 'Unknown', bcCompany: 'Unknown' },
+            arguments: { bcInstance: 'Unknown' },
         });
         assert.equal(invalidTargetResult.isError, true);
-        assert.match((invalidTargetResult.content[0] as { text: string }).text, /use an enabled target exactly/);
+        assert.match((invalidTargetResult.content[0] as { text: string }).text, /use an enabled Instance exactly/);
     } finally {
         await client.close();
         await server.close();

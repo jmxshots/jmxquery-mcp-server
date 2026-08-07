@@ -210,7 +210,9 @@ export class BcClient {
     }
     async callAction(serviceName, actionName, company, payload) {
         const url = new URL(`${serviceName}_${actionName}`, this.baseUrl);
-        url.searchParams.append('company', company);
+        if (company) {
+            url.searchParams.append('company', company);
+        }
         logger.debug({ url: url.toString(), authType: this.instance.authType }, 'Calling BC Action');
         const requestId = crypto.randomUUID();
         const startTime = Date.now();

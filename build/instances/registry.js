@@ -2,7 +2,7 @@ import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { companyCreateSchema, companyUpdateSchema, createEmptyStore, instanceCreateSchema, instanceSchema, instanceStoreSchema, instanceUpdateSchema, toPublicInstance, } from './model.js';
+import { createEmptyStore, instanceCreateSchema, instanceSchema, instanceStoreSchema, instanceUpdateSchema, toPublicInstance, } from './model.js';
 const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
 const KEY_DERIVATION_SALT = 'jmxquery-mcp-instance-store-v1';
 export class EncryptedInstanceRegistry {
@@ -48,7 +48,6 @@ export class EncryptedInstanceRegistry {
             id: randomUUID(),
             createdAt: timestamp,
             updatedAt: timestamp,
-            companies: [],
         });
         this.store.instances.push(instance);
         await this.persist();
@@ -80,67 +79,6 @@ export class EncryptedInstanceRegistry {
         }
         return this.updateInstance(instanceName, { enabled });
     }
-    async createCompany(instanceName, input) {
-        this.assertLoaded();
-        const instance = this.getInstance(instanceName);
-        const value = companyCreateSchema.parse(input);
-        if (instance.companies.some(candidate => candidate.name === value.name)) {
-            throw new Error(`Company '${value.name}' already exists in instance '${instanceName}'.`);
-        }
-        const timestamp = new Date().toISOString();
-        const company = {
-            ...value,
-            id: randomUUID(),
-            createdAt: timestamp,
-            updatedAt: timestamp,
-        };
-        const updated = instanceSchema.parse({
-            ...instance,
-            companies: [...instance.companies, company],
-            updatedAt: timestamp,
-        });
-        this.replaceInstance(instance.id, updated);
-        await this.persist();
-        return company;
-    }
-    async updateCompany(instanceName, companyName, input) {
-        this.assertLoaded();
-        const instance = this.getInstance(instanceName);
-        const existing = this.getCompany(instance, companyName);
-        const value = companyUpdateSchema.parse(input);
-        const timestamp = new Date().toISOString();
-        const company = {
-            ...existing,
-            ...value,
-            updatedAt: timestamp,
-        };
-        const updated = instanceSchema.parse({
-            ...instance,
-            companies: instance.companies.map(candidate => candidate.id === existing.id ? company : candidate),
-            updatedAt: timestamp,
-        });
-        this.replaceInstance(instance.id, updated);
-        await this.persist();
-        return company;
-    }
-    async deleteCompany(instanceName, companyName) {
-        this.assertLoaded();
-        const instance = this.getInstance(instanceName);
-        const company = this.getCompany(instance, companyName);
-        const updated = instanceSchema.parse({
-            ...instance,
-            companies: instance.companies.filter(candidate => candidate.id !== company.id),
-            updatedAt: new Date().toISOString(),
-        });
-        this.replaceInstance(instance.id, updated);
-        await this.persist();
-    }
-    async setCompanyEnabled(instanceName, companyName, enabled) {
-        if (typeof enabled !== 'boolean') {
-            throw new Error("'enabled' must be a boolean.");
-        }
-        return this.updateCompany(instanceName, companyName, { enabled });
-    }
     getSecret(instanceName, field) {
         this.assertLoaded();
         if (field !== 'password' && field !== 'clientSecret') {
@@ -161,24 +99,6 @@ export class EncryptedInstanceRegistry {
         }
         return instance;
     }
-    getTarget(instanceName, companyName) {
-        this.assertLoaded();
-        const instance = this.store.instances.find(candidate => candidate.name === instanceName);
-        if (!instance) {
-            throw new Error(`Instance '${instanceName}' was not found.`);
-        }
-        if (!instance.enabled) {
-            throw new Error(`Instance '${instanceName}' is disabled.`);
-        }
-        const company = instance.companies.find(candidate => candidate.name === companyName);
-        if (!company) {
-            throw new Error(`Company '${companyName}' was not found in instance '${instanceName}'.`);
-        }
-        if (!company.enabled) {
-            throw new Error(`Company '${companyName}' in instance '${instanceName}' is disabled.`);
-        }
-        return { instance, company };
-    }
     async replaceStore(store) {
         this.assertLoaded();
         const parsed = instanceStoreSchema.parse(store);
@@ -198,13 +118,6 @@ export class EncryptedInstanceRegistry {
         }
         return instance;
     }
-    getCompany(instance, companyName) {
-        const company = instance.companies.find(candidate => candidate.name === companyName);
-        if (!company) {
-            throw new Error(`Company '${companyName}' was not found in instance '${instance.name}'.`);
-        }
-        return company;
-    }
     assertInstanceNameAvailable(instanceName) {
         if (this.store.instances.some(candidate => candidate.name === instanceName)) {
             throw new Error(`Instance '${instanceName}' already exists.`);
@@ -213,10 +126,10 @@ export class EncryptedInstanceRegistry {
     assertCompatibleInstanceUpdate(instance, update) {
         const commonFields = new Set(['description', 'enabled', 'timeoutMs']);
         const specificFields = {
-            BASIC: new Set(['baseUrl', 'username', 'password']),
-            NTLM: new Set(['baseUrl', 'username', 'password']),
-            SSO: new Set(['baseUrl']),
-            OAUTH: new Set(['tenantId', 'clientId', 'clientSecret', 'environment']),
+            BASIC: new Set(['baseUrl', 'username', 'password', 'technicalCompany']),
+            NTLM: new Set(['baseUrl', 'username', 'password', 'technicalCompany']),
+            SSO: new Set(['baseUrl', 'technicalCompany']),
+            OAUTH: new Set(['tenantId', 'clientId', 'clientSecret', 'environment', 'technicalCompany']),
         };
         for (const field of Object.keys(update)) {
             if (!commonFields.has(field) && !specificFields[instance.authType].has(field)) {
@@ -234,13 +147,6 @@ export class EncryptedInstanceRegistry {
                 throw new Error(`Duplicate instance name '${instance.name}'.`);
             }
             instanceNames.add(instance.name);
-            const companyNames = new Set();
-            for (const company of instance.companies) {
-                if (companyNames.has(company.name)) {
-                    throw new Error(`Duplicate company name '${company.name}' in instance '${instance.name}'.`);
-                }
-                companyNames.add(company.name);
-            }
         }
     }
     async persist() {

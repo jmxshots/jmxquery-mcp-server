@@ -23,6 +23,29 @@
   display: flex;
   align-items: center;
 }
+
+.connection-setup {
+  border-top: 1px solid #d9e1dc;
+  display: grid;
+  gap: 13px;
+  margin-top: 22px;
+  padding-top: 20px;
+}
+.connection-setup h3 {
+  color: #173a42;
+  font-size: 16px;
+  margin: 3px 0 0;
+}
+.connection-setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.connection-status {
+  color: #456664;
+  font-size: 13px;
+  margin: 0;
+}
 .button-row {
   gap: 10px;
 }

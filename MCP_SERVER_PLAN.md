@@ -31,20 +31,14 @@ An `Instance` is a Business Central endpoint and authentication profile.
 - `authType`: `BASIC`, `NTLM`, `SSO`, or `OAUTH`.
 - authentication fields: endpoint and credentials appropriate to the selected type.
 - `timeoutMs`: per-Instance request timeout.
-- `companies`: a collection of Company targets.
+- `technicalCompany`: one Company used internally for API information, context, table, and metadata calls.
 - timestamps and opaque UUID identifier.
 
 For OAuth, `tenantId` is an Entra ID tenant identifier and is not a Business Central Company.
 
-### Company
+### Execution Company
 
-A `Company` is a selectable Business Central target nested under an Instance.
-
-- `name`: unique alias within its Instance; agents pass this as `bcCompany`.
-- `company`: exact technical Business Central OData Company value.
-- `executionContextCode`: default JMX-QUERY execution context.
-- `enabled`: permits or rejects new calls to the Company.
-- timestamps and opaque UUID identifier.
+An Execution Company is returned by `DescribeExecutionContext`. Agents use one only for `ExecuteScript`; the server validates it against that context before passing it as the OData `company` parameter.
 
 ### Public Projection
 
@@ -64,13 +58,13 @@ The encrypted file and master key are a restore pair. Rotation of the master key
 
 ## BC Client Lifecycle
 
-`BcClientFactory` resolves enabled `(bcInstance, bcCompany)` names through the registry.
+`BcClientFactory` resolves enabled `bcInstance` names through the registry.
 
-1. Reject unknown or disabled Instance/Company targets.
+1. Reject unknown or disabled Instance targets.
 2. Cache one `BcClient` per Instance UUID.
 3. Compare the cached revision with the Instance `updatedAt` timestamp.
 4. Recreate the client and invalidate OAuth state when an Instance revision changes.
-5. Pass the selected Company's technical `company` value to each OData action call.
+5. Pass the Instance `technicalCompany` to OData action calls, except `ExecuteScript`, which uses its validated Execution Company.
 
 A disabled target blocks new work. Existing calls retain their client and are allowed to finish.
 
@@ -78,16 +72,15 @@ A disabled target blocks new work. Existing calls retain their client and are al
 
 The MCP server is created per transport connection because MCP SDK `connect()` binds a transport to that server instance. The shared registry, client factory, and log service are process-level dependencies.
 
-`jmxq_listInstances` exposes enabled public Instance and Company names so an agent can discover valid targets. Every Business Central tool requires:
+`jmxq_listInstances` exposes enabled public Instance names so an agent can discover valid targets. Every Business Central tool requires:
 
 ```json
 {
-  "bcInstance": "Production",
-  "bcCompany": "Northwind"
+  "bcInstance": "Production"
 }
 ```
 
-Tools may include `executionContextCode`. When absent, the Company `executionContextCode` is used. The server must never default execution context from the technical `company` field.
+Context-dependent tools require `executionContextCode`. `jmxq_executeScript` additionally requires an `executionCompany` returned by `jmxq_describeExecutionContext` and validates that pairing before execution.
 
 MCP transports:
 
@@ -158,7 +151,7 @@ Focused validation should cover:
 2. Instance/Company enablement and uniqueness rules.
 3. Admin authentication, secret reveal confirmation, and public redaction.
 4. Factory routing, cache invalidation, and Company execution-context fallback.
-5. MCP schemas requiring `bcInstance` and `bcCompany`.
+5. MCP schemas requiring `bcInstance`, plus `executionContextCode` and a context-authorized `executionCompany` for script execution.
 6. Log redaction, rotation, retention, filtering, and metrics.
 7. Static Admin GUI routing and protected Documentation retrieval.
 8. A real connection test for each configured authentication type in the deployment environment.
