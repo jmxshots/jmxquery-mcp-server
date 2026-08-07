@@ -5,6 +5,27 @@ import { randomUUID } from 'node:crypto';
 import { createEmptyStore, instanceCreateSchema, instanceSchema, instanceStoreSchema, instanceUpdateSchema, toPublicInstance, } from './model.js';
 const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
 const KEY_DERIVATION_SALT = 'jmxquery-mcp-instance-store-v1';
+const LEGACY_TECHNICAL_COMPANY = 'Not configured';
+const isRecord = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
+/** Adds fields introduced after version 1 stores were first persisted. */
+export const migrateLegacyInstanceStore = (store) => {
+    if (!isRecord(store) || !Array.isArray(store.instances)) {
+        return store;
+    }
+    let migrated = false;
+    const instances = store.instances.map(instance => {
+        if (!isRecord(instance) || instance.technicalCompany !== undefined) {
+            return instance;
+        }
+        migrated = true;
+        return {
+            ...instance,
+            technicalCompany: LEGACY_TECHNICAL_COMPANY,
+            enabled: false,
+        };
+    });
+    return migrated ? { ...store, instances } : store;
+};
 export class EncryptedInstanceRegistry {
     filePath;
     store = createEmptyStore();
@@ -24,7 +45,12 @@ export class EncryptedInstanceRegistry {
         }
         try {
             const content = await readFile(this.filePath, 'utf8');
-            this.store = instanceStoreSchema.parse(this.decrypt(content));
+            const decryptedStore = this.decrypt(content);
+            const migratedStore = migrateLegacyInstanceStore(decryptedStore);
+            this.store = instanceStoreSchema.parse(migratedStore);
+            if (migratedStore !== decryptedStore) {
+                await this.persist();
+            }
         }
         catch (error) {
             if (error?.code !== 'ENOENT') {

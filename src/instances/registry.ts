@@ -26,6 +26,34 @@ interface EncryptedStoreEnvelope {
 
 export type SecretField = 'password' | 'clientSecret';
 
+const LEGACY_TECHNICAL_COMPANY = 'Not configured';
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** Adds fields introduced after version 1 stores were first persisted. */
+export const migrateLegacyInstanceStore = (store: unknown): unknown => {
+    if (!isRecord(store) || !Array.isArray(store.instances)) {
+        return store;
+    }
+
+    let migrated = false;
+    const instances = store.instances.map(instance => {
+        if (!isRecord(instance) || instance.technicalCompany !== undefined) {
+            return instance;
+        }
+
+        migrated = true;
+        return {
+            ...instance,
+            technicalCompany: LEGACY_TECHNICAL_COMPANY,
+            enabled: false,
+        };
+    });
+
+    return migrated ? { ...store, instances } : store;
+};
+
 export class EncryptedInstanceRegistry {
     private store: InstanceStore = createEmptyStore();
     private isLoaded = false;
@@ -50,7 +78,12 @@ export class EncryptedInstanceRegistry {
 
         try {
             const content = await readFile(this.filePath, 'utf8');
-            this.store = instanceStoreSchema.parse(this.decrypt(content));
+            const decryptedStore = this.decrypt(content);
+            const migratedStore = migrateLegacyInstanceStore(decryptedStore);
+            this.store = instanceStoreSchema.parse(migratedStore);
+            if (migratedStore !== decryptedStore) {
+                await this.persist();
+            }
         } catch (error: any) {
             if (error?.code !== 'ENOENT') {
                 throw new Error(`Failed to load the instance store: ${error?.message || String(error)}`);

@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { BcClientFactory } from '../src/instances/clientFactory.js';
 import type { PublicInstance } from '../src/instances/model.js';
+import { migrateLegacyInstanceStore } from '../src/instances/registry.js';
+import { LogService } from '../src/logging/logService.js';
 import type { LogService } from '../src/logging/logService.js';
 import { createMcpServer } from '../src/mcp/server.js';
 import { createInstanceSelection } from '../src/mcp/tools.js';
@@ -25,6 +30,53 @@ const createInstance = (
     authType: 'SSO',
     baseUrl: `https://${name.toLowerCase()}.example.test/odata`,
     technicalCompany,
+});
+
+test('legacy instance stores receive a disabled placeholder company', () => {
+    const legacyStore = {
+        version: 1,
+        instances: [{
+            id: 'f4cff2cb-d9bf-4f2d-9c04-fb42354db7bf',
+            name: 'Production',
+            description: '',
+            enabled: true,
+            timeoutMs: 60000,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            authType: 'SSO',
+            baseUrl: 'https://production.example.test/odata',
+        }],
+    };
+
+    assert.deepEqual(migrateLegacyInstanceStore(legacyStore), {
+        ...legacyStore,
+        instances: [{
+            ...legacyStore.instances[0],
+            technicalCompany: 'Not configured',
+            enabled: false,
+        }],
+    });
+});
+
+test('locked expired log files do not break audit log queries', async () => {
+    const logDirectory = mkdtempSync(path.join(tmpdir(), 'jmxquery-log-service-'));
+    const logService = new LogService(logDirectory, 30, 1000);
+    (logService as any).removeExpiredFiles = async () => {
+        throw new Error('EPERM: operation not permitted');
+    };
+
+    try {
+        await logService.record({
+            tool: 'jmxq_listInstances',
+            status: 'success',
+            durationMs: 12,
+            requestId: crypto.randomUUID(),
+        });
+
+        assert.equal((await logService.query()).length, 1);
+    } finally {
+        rmSync(logDirectory, { recursive: true, force: true });
+    }
 });
 
 test('instance selection exposes only enabled instances', () => {

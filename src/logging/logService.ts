@@ -104,7 +104,7 @@ export class LogService {
         const write = async () => {
             await mkdir(this.logDirectory, { recursive: true });
             await writeFile(filePath, `${JSON.stringify(record)}\n`, { encoding: 'utf8', flag: 'a', mode: 0o600 });
-            await this.removeExpiredFiles(timestamp);
+            await this.removeExpiredFiles(timestamp).catch(() => undefined);
         };
         this.writeQueue = this.writeQueue.catch(() => undefined).then(write);
         await this.writeQueue;
@@ -236,7 +236,18 @@ export class LogService {
             const match = LOG_FILE_PATTERN.exec(fileName);
             return !!match && (cutoffDate === undefined || match[1] < cutoffDate);
         });
-        await Promise.all(filesToDelete.map(fileName => unlink(path.join(this.logDirectory, fileName))));
+        await Promise.all(filesToDelete.map(fileName => this.removeLogFile(path.join(this.logDirectory, fileName))));
         return filesToDelete.length;
+    }
+
+    private async removeLogFile(filePath: string): Promise<void> {
+        try {
+            await unlink(filePath);
+        } catch (error: any) {
+            if (error?.code !== 'EPERM') {
+                throw error;
+            }
+            await writeFile(filePath, '', { encoding: 'utf8', mode: 0o600 });
+        }
     }
 }
