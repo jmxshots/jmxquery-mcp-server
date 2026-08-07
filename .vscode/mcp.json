@@ -1,7 +1,7 @@
 {
   "inputs": [
     {
-        "id": "jmxq-mcp-server-api-key-v2",
+        "id": "jmxq-mcp-server-api-key-v3",
       "type": "promptString",
       "description": "JMX-QUERY MCP API key",
       "password": true
@@ -10,9 +10,10 @@
   "servers": {
     "jmxq-mcp-server": {
       "type": "http",
-      "url": "https://jmxquerymcpserver-pro4office.msappproxy.net/mcp/stream",
+      //"url": "https://jmxquerymcpserver-pro4office.msappproxy.net/mcp/stream",
+      "url": "http://127.0.0.1:5001/mcp/stream",
       "headers": {
-        "Authorization": "Bearer ${input:jmxq-mcp-server-api-key-v2}"
+        "Authorization": "Bearer ${input:jmxq-mcp-server-api-key-v3}"
       }
     }
   }
