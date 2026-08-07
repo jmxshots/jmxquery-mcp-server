@@ -1814,6 +1814,24 @@ function ToolsView({
     void loadAvailableExecutionContexts();
   };
 
+  const selectInstance = (instanceName: string) => {
+    setSelectedInstanceName(instanceName);
+    setExecutionContextCode("");
+    setExecutionCompany("");
+    setAvailableExecutionCompanies([]);
+    setAvailableExecutionContexts([]);
+    setSelectedAvailableExecutionContext("");
+    setExecutionContextPickerError("");
+    setExecutionContextPickerOpen(false);
+    setTableRef("");
+    setSearchPattern("");
+    setSelectedScriptTemplate("");
+    setScript("");
+    setResult(null);
+    setError("");
+    setConfirmExecution(false);
+  };
+
   const runTool = async (toolName = selectedToolName) => {
     const tool = tools.find((candidate) => candidate.name === toolName);
     if (!tool) return;
@@ -1931,7 +1949,7 @@ function ToolsView({
                   <select
                     value={selectedInstanceName}
                     title="Select the configured Business Central instance, e.g. Sandbox."
-                    onChange={(event) => setSelectedInstanceName(event.target.value)}
+                    onChange={(event) => selectInstance(event.target.value)}
                     disabled={running}
                     required
                   >
