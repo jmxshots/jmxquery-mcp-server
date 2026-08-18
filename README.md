@@ -152,7 +152,7 @@ For SSO, open `services.msc`, select **JMX-QUERY MCP Server**, open **Properties
 
 ## Admin GUI
 
-Open `/admin` on the main service port. The login screen requests the service URL and Admin API key. After a successful login, the browser receives a server-issued `HttpOnly` session cookie, so reloading the page keeps the Admin session until **Sign out**, the browser is closed, or the server restarts. The Admin API key is not stored in browser storage; **Sign out** revokes and clears the session.
+Open `/admin` on the main service port. The login screen automatically uses the server that delivered the Admin GUI and requests only the Admin API key. After a successful login, the browser receives a server-issued `HttpOnly` session cookie, so reloading the page keeps the Admin session until **Sign out**, the browser is closed, or the server restarts. The Admin API key is not stored in browser storage; **Sign out** revokes and clears the session.
 
 ### Instances
 
@@ -404,7 +404,7 @@ Never edit `instances.enc` manually. Restore it only with the matching master ke
 | Symptom | Check |
 | --- | --- |
 | Server fails at startup | Ensure `INSTANCE_MASTER_KEY` has at least 32 characters. When `ADMIN_API_ENABLED=true`, configure `ADMIN_API_KEY`. |
-| Admin login fails | Verify the URL, `ADMIN_API_ENABLED=true`, and the Admin key. Do not use `JMXQ_MCPAPI_KEY` here. |
+| Admin login fails | Verify `ADMIN_API_ENABLED=true` and the Admin key. Do not use `JMXQ_MCPAPI_KEY` here. |
 | MCP client receives `401` | Configure `JMXQ_MCPAPI_KEY` in the client Authorization header. |
 | Agent cannot find a target | Create and enable an Instance and Company in the Admin GUI, then call `jmxq_listInstances`. |
 | Instance is disabled | Enable the Instance. All of its Companies are blocked while disabled. |
