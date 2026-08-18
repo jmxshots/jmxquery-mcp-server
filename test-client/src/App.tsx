@@ -474,9 +474,6 @@ function App() {
           <small>Admin</small>
         </div>
         <div className="sidebar-footer">
-          <span className="server-name" title={session.serverUrl}>
-            {session.serverUrl}
-          </span>
           <ThemeToggle
             theme={theme}
             onToggle={() => setTheme(theme === "light" ? "dark" : "light")}

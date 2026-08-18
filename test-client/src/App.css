@@ -92,15 +92,6 @@
   gap: 8px;
   padding: 14px 8px 0;
 }
-.server-name {
-  flex: 1;
-  font:
-    11px/1.4 ui-monospace,
-    monospace;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .workspace {
   background: #f4f1e9;
   min-width: 0;
