@@ -50,6 +50,38 @@ An existing `.env` is validated before building. Existing keys and application s
 
 3. Open the Admin GUI at the configured address, initially `http://127.0.0.1:5000/admin`, and enter the `ADMIN_API_KEY` from `.env`. Then create your first Instance and Company. Business Central endpoints, credentials, Companies, and execution contexts are configured only in the protected Admin GUI.
 
+## Starting the Server Manually
+
+To run the server interactively in the CLI without installing a Windows service:
+
+```powershell
+npm start
+```
+
+This starts the server in the current terminal with output visible. The server listens on the configured `MCP_PORT` and `MCP_STREAMABLE_PORT` from `.env`. The Admin GUI is available at the configured address.
+
+Press `Ctrl+C` to stop the server.
+
+### Troubleshooting Port Conflicts
+
+If another process is already listening on the configured ports, use:
+
+```powershell
+npm start -- --force-ports
+```
+
+This Windows-only option automatically terminates all processes listening on `MCP_PORT` or `MCP_STREAMABLE_PORT` and then starts the server. Use with caution when shared ports are in use.
+
+### Development Mode
+
+For active development with automatic server restart on code changes:
+
+```powershell
+npm run dev
+```
+
+This uses `tsx watch` to monitor the TypeScript source files and restart the server when changes are detected.
+
 ### Manual or Recovery Installation
 
 Use this sequence when recovering an invalid `.env` or when only the existing service installer should run:
