@@ -189,10 +189,9 @@ const emptyInstanceForm = (): InstanceFormData => ({
   environment: "Production",
   technicalCompany: "",
 });
-const defaultServerUrl = import.meta.env.DEV
+const adminServerUrl = import.meta.env.DEV
   ? "http://127.0.0.1:5000"
   : window.location.origin;
-const normalizeServerUrl = (value: string) => value.trim().replace(/\/+$/, "");
 const isLoopbackHostname = (hostname: string) =>
   hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
 const toConnectionEndpoint = (hostname: string, protocol: string, port: number) => {
@@ -202,37 +201,6 @@ const toConnectionEndpoint = (hostname: string, protocol: string, port: number) 
   return endpoint.toString();
 };
 const themeStorageKey = "jmx-query-admin-theme";
-const adminServerUrlStorageKey = "jmx-query-admin-server-url";
-const adminServerUrlHistoryStorageKey = "jmx-query-admin-server-url-history";
-const initialServerUrl = () => {
-  try {
-    return window.localStorage.getItem(adminServerUrlStorageKey) || defaultServerUrl;
-  } catch {
-    return defaultServerUrl;
-  }
-};
-const initialServerUrlHistory = () => {
-  try {
-    const storedHistory = JSON.parse(
-      window.localStorage.getItem(adminServerUrlHistoryStorageKey) || "[]",
-    );
-    const legacyServerUrl = window.localStorage.getItem(adminServerUrlStorageKey);
-    const entries = [
-      ...(Array.isArray(storedHistory) ? storedHistory : []),
-      ...(legacyServerUrl ? [legacyServerUrl] : []),
-    ];
-    return Array.from(
-      new Set(
-        entries
-          .filter((value): value is string => typeof value === "string")
-          .map(normalizeServerUrl)
-          .filter(Boolean),
-      ),
-    ).slice(0, 8);
-  } catch {
-    return [];
-  }
-};
 const initialTheme = (): Theme => {
   try {
     const storedTheme = window.localStorage.getItem(themeStorageKey);
@@ -360,10 +328,6 @@ function App() {
   const [theme, setTheme] = useState<Theme>(initialTheme);
   const [session, setSession] = useState<Session | null>(null);
   const [view, setView] = useState<View>("instances");
-  const [serverUrl, setServerUrl] = useState(initialServerUrl);
-  const [serverUrlHistory, setServerUrlHistory] = useState(
-    initialServerUrlHistory,
-  );
   const [adminKey, setAdminKey] = useState("");
   const [loginError, setLoginError] = useState("");
   const [instances, setInstances] = useState<Instance[]>([]);
@@ -379,25 +343,13 @@ function App() {
     }
   }, [theme]);
   useEffect(() => {
-    try {
-      window.localStorage.setItem(
-        adminServerUrlHistoryStorageKey,
-        JSON.stringify(serverUrlHistory),
-      );
-    } catch {
-      // URL history is optional when browser storage is unavailable.
-    }
-  }, [serverUrlHistory]);
-  useEffect(() => {
-    const candidateServerUrl = normalizeServerUrl(initialServerUrl());
     const restoreSession = async () => {
       try {
-        const response = await fetch(`${candidateServerUrl}/admin/api/session`, {
+        const response = await fetch(`${adminServerUrl}/admin/api/session`, {
           credentials: "include",
         });
         if (response.ok) {
-          setServerUrl(candidateServerUrl);
-          setSession({ serverUrl: candidateServerUrl });
+          setSession({ serverUrl: adminServerUrl });
         }
       } catch {
         // A new login is required when the prior server is unreachable.
@@ -453,22 +405,19 @@ function App() {
   }, [session, loadInstances]);
   const signIn = async (event: FormEvent) => {
     event.preventDefault();
-    const candidate = {
-      serverUrl: normalizeServerUrl(serverUrl),
-      adminKey: adminKey.trim(),
-    };
-    if (!candidate.serverUrl || !candidate.adminKey) {
-      setLoginError("Enter both the server URL and Admin API key.");
+    const candidateAdminKey = adminKey.trim();
+    if (!candidateAdminKey) {
+      setLoginError("Enter the Admin API key.");
       return;
     }
     setLoginError("");
     try {
       const response = await fetch(
-        `${candidate.serverUrl}/admin/api/session`,
+        `${adminServerUrl}/admin/api/session`,
         {
           method: "POST",
           credentials: "include",
-          headers: { Authorization: `Bearer ${candidate.adminKey}` },
+          headers: { Authorization: `Bearer ${candidateAdminKey}` },
         },
       );
       if (!response.ok)
@@ -477,20 +426,8 @@ function App() {
             ? "The Admin API key was rejected."
             : `Server returned HTTP ${response.status}.`,
         );
-      try {
-        window.localStorage.setItem(
-          adminServerUrlStorageKey,
-          candidate.serverUrl,
-        );
-      } catch {
-        // Session restoration is optional when browser storage is unavailable.
-      }
-      setServerUrlHistory((previous) => [
-        candidate.serverUrl,
-        ...previous.filter((url) => url !== candidate.serverUrl),
-      ].slice(0, 8));
       setAdminKey("");
-      setSession({ serverUrl: candidate.serverUrl });
+      setSession({ serverUrl: adminServerUrl });
     } catch (error) {
       setLoginError(
         error instanceof Error
@@ -498,9 +435,6 @@ function App() {
           : "Unable to reach the Admin API.",
       );
     }
-  };
-  const removeServerUrlFromHistory = (url: string) => {
-    setServerUrlHistory((previous) => previous.filter((entry) => entry !== url));
   };
   const signOut = async () => {
     if (!session) return;
@@ -523,14 +457,10 @@ function App() {
   if (!session)
     return (
       <LoginScreen
-        serverUrl={serverUrl}
         adminKey={adminKey}
         error={loginError}
-        onServerUrl={setServerUrl}
         onAdminKey={setAdminKey}
         onSubmit={signIn}
-        serverUrlHistory={serverUrlHistory}
-        onRemoveServerUrl={removeServerUrlFromHistory}
         theme={theme}
         onThemeChange={() => setTheme(theme === "light" ? "dark" : "light")}
       />
@@ -617,29 +547,20 @@ function App() {
 }
 
 function LoginScreen({
-  serverUrl,
   adminKey,
   error,
-  onServerUrl,
   onAdminKey,
   onSubmit,
-  serverUrlHistory,
-  onRemoveServerUrl,
   theme,
   onThemeChange,
 }: {
-  serverUrl: string;
   adminKey: string;
   error: string;
-  onServerUrl: (value: string) => void;
   onAdminKey: (value: string) => void;
   onSubmit: (event: FormEvent) => void;
-  serverUrlHistory: string[];
-  onRemoveServerUrl: (url: string) => void;
   theme: Theme;
   onThemeChange: () => void;
 }) {
-  const [showServerHistory, setShowServerHistory] = useState(false);
   return (
     <main className="login-page">
       <form className="login-panel" onSubmit={onSubmit}>
@@ -651,30 +572,6 @@ function LoginScreen({
           </div>
           <ThemeToggle theme={theme} onToggle={onThemeChange} />
         </div>
-        <label>
-          Server URL
-          <span className="server-url-input">
-            <input
-              type="url"
-              value={serverUrl}
-              title="URL of the JMX-QUERY MCP Server Admin API"
-              onChange={(event) => onServerUrl(event.target.value)}
-              placeholder="http://127.0.0.1:5000"
-              autoComplete="url"
-              required
-            />
-            <button
-              className="icon-button"
-              type="button"
-              title="Gespeicherte Server anzeigen"
-              aria-label="Gespeicherte Server anzeigen"
-              disabled={serverUrlHistory.length === 0}
-              onClick={() => setShowServerHistory(true)}
-            >
-              <Server size={17} />
-            </button>
-          </span>
-        </label>
         <label>
           Admin API key
           <input
@@ -703,42 +600,6 @@ function LoginScreen({
           Credentials remain in this browser tab only.
         </p>
       </form>
-      {showServerHistory && (
-        <Modal
-          title="Gespeicherte Server"
-          onClose={() => setShowServerHistory(false)}
-        >
-          <div className="server-history">
-            <p>Server auswählen oder aus dem Verlauf entfernen.</p>
-              <ul>
-                {serverUrlHistory.map((url) => (
-                  <li key={url}>
-                    <button
-                      className="server-history-select"
-                      type="button"
-                      title={`${url} verwenden`}
-                      onClick={() => {
-                        onServerUrl(url);
-                        setShowServerHistory(false);
-                      }}
-                    >
-                      {url}
-                    </button>
-                    <button
-                      className="icon-button danger"
-                      type="button"
-                      title={`${url} aus dem Verlauf entfernen`}
-                      aria-label={`${url} aus dem Verlauf entfernen`}
-                      onClick={() => onRemoveServerUrl(url)}
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-          </div>
-        </Modal>
-      )}
     </main>
   );
 }
