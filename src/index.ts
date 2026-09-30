@@ -781,12 +781,6 @@ fastify.post('/mcp/messages', async (request, reply) => {
 });
 
 // --- Streamable HTTP Transport (New Protocol) ---
-const streamableTransport = new StreamableHTTPServerTransport();
-
-streamableTransport.onerror = (error) => {
-    logger.error('MCP stream transport error');
-};
-
 // Determine which Fastify instance hosts the Streamable HTTP routes
 const streamablePort = config.MCP_STREAMABLE_PORT;
 const streamableFastify = streamablePort
@@ -829,16 +823,29 @@ const handleStreamableRequest = async (request: any, reply: any) => {
         return;
     }
 
+    // Stateless transports must not be reused; the SDK rejects a second request.
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    const mcpServer = createMcpServer(bcClientFactory, logService);
+    transport.onerror = () => {
+        logger.error('MCP stream transport error');
+    };
+
     try {
         // We MUST hijack the reply for the transport to work correctly with streaming
         reply.hijack();
+        reply.raw.on('close', () => {
+            void transport.close();
+            void mcpServer.close();
+        });
         const context = getMcpClientContext(request);
+
+        await mcpServer.connect(transport);
 
         // Pass the body if it was already parsed by Fastify (for POST requests)
         // For GET requests, request.body will be undefined which is correct.
         await runWithMcpActivity(context, async () => {
             logMcpProtocolActivity(getMcpRequestMethod(request));
-            await streamableTransport.handleRequest(request.raw, reply.raw, request.body);
+            await transport.handleRequest(request.raw, reply.raw, request.body);
         });
     } catch (error: any) {
         logger.error('MCP stream request failed');
@@ -884,9 +891,6 @@ const start = async () => {
         // Start Stdio transport in parallel
         startStdio();
 
-        // Connect Streamable transport with its own MCP server instance
-        const streamableMcpServer = createMcpServer(bcClientFactory, logService);
-        await streamableMcpServer.connect(streamableTransport);
         logger.info('MCP Streamable HTTP transport ready');
 
         // Start HTTP server for SSE (and Streamable HTTP if no separate port)
