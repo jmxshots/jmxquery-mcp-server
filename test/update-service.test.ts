@@ -150,6 +150,41 @@ test('runServiceUpdate --pull refuses local changes and non-Git folders without 
     });
 });
 
+test('runServiceUpdate --pull discards regenerated build output but keeps blocking other changes', () => {
+    withTemporaryProject(validConfiguration, rootDirectory => {
+        const gitResponses = (status: string) => fakeGit({
+            'rev-parse --is-inside-work-tree': 'true',
+            'status --porcelain --untracked-files=no': status,
+            'rev-parse --abbrev-ref HEAD': 'main',
+            'rev-parse --short HEAD': 'aaaaaaa',
+        });
+
+        const commands: Array<{ command: string; args: string[] }> = [];
+        runServiceUpdate({
+            ...recordingOptions(rootDirectory, commands),
+            pull: true,
+            gitExecutable: 'git.exe',
+            dependencyCheck: () => true,
+            readCommand: gitResponses(' M THIRD_PARTY_NOTICES.md\n M build/bcClient.js\nM  build/utils/eventLogger.js'),
+        });
+        assert.deepEqual(commands.slice(0, 2), [
+            { command: 'git.exe', args: ['checkout', 'HEAD', '--', 'build/', 'THIRD_PARTY_NOTICES.md'] },
+            { command: 'git.exe', args: ['pull', '--ff-only'] },
+        ]);
+
+        const blocked: Array<{ command: string; args: string[] }> = [];
+        assert.throws(() => runServiceUpdate({
+            ...recordingOptions(rootDirectory, blocked),
+            pull: true,
+            readCommand: gitResponses(' M build/bcClient.js\n M src/bcClient.ts\n M buildnotes.md'),
+        }), error => error instanceof Error
+            && error.message.includes(' M src/bcClient.ts')
+            && error.message.includes(' M buildnotes.md')
+            && !error.message.includes('build/bcClient.js'));
+        assert.equal(blocked.length, 0);
+    });
+});
+
 test('parseArguments accepts --pull and --help and rejects unknown options', () => {
     assert.deepEqual(parseArguments([]), { help: false, pull: false });
     assert.deepEqual(parseArguments(['--pull']), { help: false, pull: true });

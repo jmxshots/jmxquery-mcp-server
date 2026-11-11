@@ -28,8 +28,19 @@ export const readCommand = (command, args, options) => {
 };
 
 /**
- * Fast-forwards the checkout to its upstream branch. Refuses to run when tracked files have
- * local changes, so an update never creates a merge or overwrites local work.
+ * Tracked files that `npm run build` regenerates. Local changes to them are build output,
+ * not local work, so --pull discards them; the build that follows recreates them.
+ */
+export const generatedPaths = ['build/', 'THIRD_PARTY_NOTICES.md'];
+
+const isGenerated = file => generatedPaths.some(generated => generated.endsWith('/')
+    ? file.startsWith(generated)
+    : file === generated);
+
+/**
+ * Fast-forwards the checkout to its upstream branch. Refuses to run when tracked files other
+ * than build output have local changes, so an update never creates a merge or overwrites
+ * local work.
  */
 export const pullLatest = ({ rootDirectory, gitExecutable, readCommand: reader, runCommand: commandRunner, logger }) => {
     const git = args => reader(gitExecutable, args, { cwd: rootDirectory });
@@ -42,8 +53,19 @@ export const pullLatest = ({ rootDirectory, gitExecutable, readCommand: reader, 
     if (changes.status !== 0) {
         throw new Error(`git status failed: ${changes.output}`);
     }
-    if (changes.output) {
-        throw new Error(`Local changes in tracked files prevent --pull. Commit or discard them first:\n${changes.output}`);
+    // Porcelain lines are "XY path"; renames are "XY old -> new".
+    const changedLines = changes.output.split(/\r?\n/).filter(Boolean);
+    const changedFiles = changedLines.map(line => line.slice(3).split(' -> ').pop());
+    const localWork = changedLines.filter((_, index) => !isGenerated(changedFiles[index]));
+    if (localWork.length > 0) {
+        throw new Error(`Local changes in tracked files prevent --pull. Commit or discard them first:\n${localWork.join('\n')}`);
+    }
+    if (changedFiles.length > 0) {
+        logger(`Discarding local build output that the update regenerates: ${changedFiles.join(', ')}`);
+        execute(gitExecutable, ['checkout', 'HEAD', '--', ...generatedPaths], {
+            cwd: rootDirectory,
+            runCommand: commandRunner,
+        });
     }
 
     const branch = git(['rev-parse', '--abbrev-ref', 'HEAD']).output;
