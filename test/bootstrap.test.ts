@@ -7,6 +7,7 @@ import {
     applyBootstrapSettings,
     createInitialConfiguration,
     enableLanAccess,
+    formatServiceUrls,
     getAdminUrl,
     hasInstalledDependencies,
     maskSecret,
@@ -136,7 +137,7 @@ test('runBootstrap executes the dependency, build, and service phases in order',
             { command: 'cmd.exe', args: ['/d', '/s', '/c', 'npm.cmd ci'] },
             { command: 'cmd.exe', args: ['/d', '/s', '/c', 'npm.cmd --prefix test-client ci'] },
             { command: 'cmd.exe', args: ['/d', '/s', '/c', 'npm.cmd run build'] },
-            { command: 'node.exe', args: [path.join(rootDirectory, 'scripts', 'install-service.js')] },
+            { command: 'node.exe', args: [path.join(rootDirectory, 'scripts', 'install-service.js'), '--no-summary'] },
         ]);
         assert.ok(messages.includes('Bootstrap completed.'));
         assert.ok(messages.includes('Admin GUI (local): http://127.0.0.1:5100/admin'));
@@ -337,4 +338,18 @@ test('runBootstrap falls back to the .env hint when the clipboard is unavailable
         assert.ok(messages.some(message => message.startsWith('ADMIN_API_KEY ...cure: read it from ')));
         assert.ok(messages.every(message => !message.includes('admin-key-that-is-long-enough-to-be-secure')));
     });
+});
+
+test('formatServiceUrls shows local and network URLs for the configured listener', () => {
+    assert.deepEqual(formatServiceUrls('MCP_HOST=0.0.0.0\nMCP_PORT=5000\nMCP_STREAMABLE_PORT=5001', 'bc-mcp'), [
+        'Admin GUI (this computer): http://127.0.0.1:5000/admin',
+        'Admin GUI (network):       http://bc-mcp:5000/admin',
+        'MCP endpoint:              http://bc-mcp:5001/mcp/stream',
+    ]);
+    assert.deepEqual(formatServiceUrls('MCP_HOST=127.0.0.1\nMCP_PORT=6000', 'bc-mcp'), [
+        'Admin GUI (this computer): http://127.0.0.1:6000/admin',
+        'MCP endpoint:              http://127.0.0.1:6000/mcp/stream',
+    ]);
+    assert.equal(formatServiceUrls('MCP_HOST=192.168.1.20\nMCP_PORT=5000', 'bc-mcp')[1],
+        'Admin GUI (network):       http://192.168.1.20:5000/admin');
 });

@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import { formatServiceUrls } from './bootstrap.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,6 +17,8 @@ console.log = (...args) => {
 };
 
 const serviceName = 'JMX-QUERY MCP Server';
+// bootstrap and service:update print their own summary and pass --no-summary.
+const showSummary = !process.argv.includes('--no-summary');
 const envFilePath = path.join(__dirname, '..', '.env');
 
 // Build service env: inline ALL variables from the .env file directly so that
@@ -38,6 +41,10 @@ serviceEnv.push({ name: 'MCP_STDIO', value: 'off' });
 console.log(`Installing service: "${serviceName}" with ${resolvedEnvFile}`);
 
 // Create a new service object
+const printServiceUrls = () => {
+    if (showSummary) formatServiceUrls(raw).forEach(line => console.log(line));
+};
+
 const svc = new Service({
     name: serviceName,
     description: 'JMX-QUERY Model Context Protocol Server for Business Central',
@@ -84,10 +91,12 @@ svc.on('alreadyinstalled', function () {
         return;
     }
     console.log('Service updated and restarted successfully.');
+    printServiceUrls();
 });
 
 svc.on('start', function () {
     console.log('Service started successfully.');
+    printServiceUrls();
 });
 
 // Log any errors

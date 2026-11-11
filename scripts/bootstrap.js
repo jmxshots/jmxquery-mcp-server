@@ -54,6 +54,30 @@ export const getAdminUrl = (contents) => {
     return `http://${urlHost}:${values.MCP_PORT || '5000'}/admin`;
 };
 
+const loopbackHosts = new Set(['127.0.0.1', 'localhost', '::1']);
+const anyHosts = new Set(['0.0.0.0', '::']);
+const urlHostFor = host => host.includes(':') ? `[${host}]` : host;
+
+/**
+ * Lines with the Admin GUI and MCP endpoint URLs for the configured listener. Adds network
+ * URLs when the server listens beyond loopback: the computer name for 0.0.0.0, otherwise the
+ * configured address.
+ */
+export const formatServiceUrls = (contents, machineHostname = hostname()) => {
+    const values = parseEnv(contents);
+    const configuredHost = (values.MCP_HOST || '127.0.0.1').toLowerCase();
+    const mainPort = values.MCP_PORT || '5000';
+    const mcpPort = values.MCP_STREAMABLE_PORT || mainPort;
+    const networkHost = loopbackHosts.has(configuredHost)
+        ? null
+        : anyHosts.has(configuredHost) ? machineHostname : values.MCP_HOST;
+
+    const lines = [`Admin GUI (this computer): ${getAdminUrl(contents)}`];
+    if (networkHost) lines.push(`Admin GUI (network):       http://${urlHostFor(networkHost)}:${mainPort}/admin`);
+    lines.push(`MCP endpoint:              http://${urlHostFor(networkHost || '127.0.0.1')}:${mcpPort}/mcp/stream`);
+    return lines;
+};
+
 const setEnvValue = (contents, name, value) => {
     const pattern = new RegExp(`^${name}=.*$`, 'm');
     if (pattern.test(contents)) return contents.replace(pattern, `${name}=${value}`);
@@ -436,7 +460,7 @@ export const runBootstrap = ({
     const installWindowsService = bootstrapSettings.installWindowsService !== false;
     if (installWindowsService) {
         logger('5/5 Installing and starting the Windows service...');
-        execute(nodeExecutable, [path.join(rootDirectory, 'scripts', 'install-service.js')], commandOptions);
+        execute(nodeExecutable, [path.join(rootDirectory, 'scripts', 'install-service.js'), '--no-summary'], commandOptions);
     } else {
         logger('5/5 Windows service installation skipped.');
     }

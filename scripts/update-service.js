@@ -1,11 +1,13 @@
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import { hostname } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 import {
     createNpmExecutor,
     execute,
+    formatServiceUrls,
     hasInstalledDependencies,
     projectRoot,
     runCommand,
@@ -95,6 +97,7 @@ export const runServiceUpdate = ({
     dependencyCheck = hasInstalledDependencies,
     runCommand: commandRunner = runCommand,
     logger = console.log,
+    machineHostname = hostname(),
 } = {}) => {
     if (platform !== 'win32') {
         throw new Error('The service update manages a Windows service and must be run on Windows.');
@@ -111,7 +114,8 @@ export const runServiceUpdate = ({
     if (!fs.existsSync(envPath)) {
         throw new Error(`${envPath} not found. Run npm run bootstrap for the first installation.`);
     }
-    const errors = validateConfiguration(fs.readFileSync(envPath, 'utf8'));
+    const envContents = fs.readFileSync(envPath, 'utf8');
+    const errors = validateConfiguration(envContents);
     if (errors.length > 0) {
         throw new Error(`.env is invalid: ${errors.join(' ')} Run npm run bootstrap to repair it.`);
     }
@@ -141,11 +145,12 @@ export const runServiceUpdate = ({
     executeNpm(['run', 'build']);
 
     logger('3/3 Applying service configuration and restarting the service...');
-    execute(nodeExecutable, [path.join(rootDirectory, 'scripts', 'install-service.js')], {
+    execute(nodeExecutable, [path.join(rootDirectory, 'scripts', 'install-service.js'), '--no-summary'], {
         cwd: rootDirectory,
         runCommand: commandRunner,
     });
     logger('Service update completed.');
+    formatServiceUrls(envContents, machineHostname).forEach(line => logger(line));
 };
 
 export const parseArguments = (args) => {

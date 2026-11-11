@@ -44,7 +44,7 @@ test('runServiceUpdate installs stale dependencies, builds, and re-applies the s
             { command: 'cmd.exe', args: ['/d', '/s', '/c', 'npm.cmd ci'] },
             { command: 'cmd.exe', args: ['/d', '/s', '/c', 'npm.cmd --prefix test-client ci'] },
             { command: 'cmd.exe', args: ['/d', '/s', '/c', 'npm.cmd run build'] },
-            { command: 'node.exe', args: [path.join(rootDirectory, 'scripts', 'install-service.js')] },
+            { command: 'node.exe', args: [path.join(rootDirectory, 'scripts', 'install-service.js'), '--no-summary'] },
         ]);
     });
 });
@@ -56,7 +56,7 @@ test('runServiceUpdate skips matching dependencies', () => {
 
         assert.deepEqual(commands.map(({ args }) => args.at(-1)), [
             'npm.cmd run build',
-            path.join(rootDirectory, 'scripts', 'install-service.js'),
+            '--no-summary',
         ]);
     });
 });
