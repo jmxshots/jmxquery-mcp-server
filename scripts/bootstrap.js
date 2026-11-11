@@ -85,6 +85,8 @@ export const hasInstalledDependencies = (rootDirectory, fileSystem = fs) => {
             .filter(([packagePath]) => packagePath.startsWith('node_modules/'))
             .every(([packagePath, expected]) => {
                 const installed = installedPackages[packagePath];
+                // npm skips optional packages for other platforms, e.g. @esbuild/darwin-arm64 on Windows.
+                if (!installed && expected.optional) return true;
                 return installed
                     && installed.version === expected.version
                     && installed.integrity === expected.integrity
@@ -347,12 +349,12 @@ export const provisionConfiguration = (
     return { created: true, envPath };
 };
 
-const runCommand = (command, args, options) => spawnSync(command, args, {
+export const runCommand = (command, args, options) => spawnSync(command, args, {
     cwd: options.cwd,
     stdio: 'inherit',
 });
 
-const execute = (command, args, options) => {
+export const execute = (command, args, options) => {
     const result = options.runCommand(command, args, { cwd: options.cwd });
     if (result.error) {
         throw result.error;
@@ -361,6 +363,15 @@ const execute = (command, args, options) => {
         throw new Error(`${command} ${args.join(' ')} failed with exit code ${result.status ?? 'unknown'}.`);
     }
 };
+
+/** Runs npm through cmd.exe so that npm.cmd resolves without shell: true. */
+export const createNpmExecutor = ({ npm, commandShell, cwd, runCommand: commandRunner }) => args => execute(
+    commandShell,
+    ['/d', '/s', '/c', [npm, ...args]
+        .map(value => value.includes(' ') ? `"${value}"` : value)
+        .join(' ')],
+    { cwd, runCommand: commandRunner },
+);
 
 export const runBootstrap = ({
     rootDirectory = projectRoot,
@@ -382,13 +393,7 @@ export const runBootstrap = ({
 
     const npm = npmExecutable || (platform === 'win32' ? 'npm.cmd' : 'npm');
     const commandOptions = { cwd: rootDirectory, runCommand: commandRunner };
-    const executeNpm = args => execute(
-        commandShell,
-        ['/d', '/s', '/c', [npm, ...args]
-            .map(value => value.includes(' ') ? `"${value}"` : value)
-            .join(' ')],
-        commandOptions,
-    );
+    const executeNpm = createNpmExecutor({ npm, commandShell, cwd: rootDirectory, runCommand: commandRunner });
 
     logger('1/5 Checking server dependencies...');
     if (dependencyCheck(rootDirectory)) {

@@ -9,7 +9,7 @@
   "scripts": {
     "build": "tsc && npm --prefix test-client run build && npm run notices",
     "notices": "node scripts/generate-third-party-notices.js",
-    "test": "npm run test:mcp && npm run test:bootstrap && npm run test:security && npm run test:model",
+    "test": "npm run test:mcp && npm run test:bootstrap && npm run test:security && npm run test:model && npm run test:update",
     "test:security": "tsx --test test/security.test.ts",
     "test:mcp": "tsx --test test/mcp-workflow.test.ts",
     "test:bootstrap": "tsx --test test/bootstrap.test.ts",
@@ -18,10 +18,12 @@
     "dev": "tsx watch src/index.ts",
     "service:install": "node scripts/install-service.js",
     "service:uninstall": "node scripts/uninstall-service.js",
+    "service:update": "node scripts/update-service.js",
     "inspect": "npx @modelcontextprotocol/inspector node build/index.js",
     "inspect:dev": "npx @modelcontextprotocol/inspector tsx src/index.ts",
     "inspect:sse": "npx @modelcontextprotocol/inspector --transport sse --server-url http://127.0.0.1:5000/mcp/sse",
-    "test:model": "tsx --test test/model.test.ts"
+    "test:model": "tsx --test test/model.test.ts",
+    "test:update": "tsx --test test/update-service.test.ts"
   },
   "dependencies": {
     "@azure/identity": "^4.13.0",

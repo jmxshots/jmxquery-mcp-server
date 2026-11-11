@@ -292,6 +292,27 @@ test('hasInstalledDependencies compares installed packages with the lockfile', (
         assert.equal(hasInstalledDependencies(rootDirectory), false);
     });
 });
+
+test('hasInstalledDependencies ignores optional packages skipped for this platform', () => {
+    withTemporaryProject(rootDirectory => {
+        const example = { version: '1.0.0', integrity: 'sha512-example' };
+        const platformPackage = { version: '1.0.0', integrity: 'sha512-darwin', optional: true, os: ['darwin'] };
+        mkdirSync(path.join(rootDirectory, 'node_modules', 'example'), { recursive: true });
+        writeFileSync(path.join(rootDirectory, 'package-lock.json'), JSON.stringify({
+            packages: { 'node_modules/example': example, 'node_modules/@esbuild/darwin-arm64': platformPackage },
+        }));
+        writeFileSync(path.join(rootDirectory, 'node_modules', '.package-lock.json'), JSON.stringify({
+            packages: { 'node_modules/example': example },
+        }));
+        assert.equal(hasInstalledDependencies(rootDirectory), true);
+
+        // A required package that is missing still counts as outdated.
+        writeFileSync(path.join(rootDirectory, 'package-lock.json'), JSON.stringify({
+            packages: { 'node_modules/example': example, 'node_modules/required': { version: '1.0.0' } },
+        }));
+        assert.equal(hasInstalledDependencies(rootDirectory), false);
+    });
+});
 test('maskSecret shows only the last four characters', () => {
     assert.equal(maskSecret('abcdefghijkl'), '...ijkl');
     assert.equal(maskSecret(''), '(not set)');
