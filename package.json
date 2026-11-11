@@ -2,6 +2,8 @@
   "name": "jmxquery-mcp-server",
   "version": "1.0.0",
   "description": "JMX-QUERY MCP Server for Business Central",
+  "author": "pro4dynamix GmbH",
+  "license": "MIT",
   "main": "build/index.js",
   "type": "module",
   "scripts": {
