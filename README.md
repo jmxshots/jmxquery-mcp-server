@@ -288,6 +288,10 @@ When MCP authentication is enabled, replace the `<JMXQ_MCPAPI_KEY>` placeholder 
 }
 ```
 
+## Other Harnesses
+
+The **Connect** page also generates ready-to-paste configuration for Claude Code (`claude mcp add` command), Hermes Agent (`~/.hermes/config.yaml`), Codex CLI (`~/.codex/config.toml`) and Gemini CLI (`~/.gemini/settings.json`). They all use the Streamable HTTP endpoint; when `JMXQ_MCPAPI_KEY` is set, replace `<JMXQ_MCPAPI_KEY>` or provide it as an environment variable of the same name.
+
 ## Claude Desktop
 
 In the Admin GUI, select **Connect** and choose **Claude Desktop**. The generated configuration starts a local Stdio-only process and is valid only on the computer where this repository and Node.js are installed. It does not use the HTTP endpoint, the LAN configuration, or `JMXQ_MCPAPI_KEY`.

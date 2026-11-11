@@ -40,7 +40,45 @@ type AuthType = "BASIC" | "NTLM" | "SSO" | "OAUTH";
 type SecretField = "password" | "clientSecret";
 type LogTimeRange = "all" | "5m" | "10m" | "1h" | "6h" | "24h" | "3d" | "custom";
 type ConnectionLocation = "local" | "lan";
-type Harness = "vscode" | "cursor" | "claudeDesktop";
+type Harness =
+  | "vscode"
+  | "cursor"
+  | "claudeDesktop"
+  | "claudeCode"
+  | "hermes"
+  | "codex"
+  | "gemini";
+const harnessMeta: Record<Harness, { label: string; stdio?: boolean; hint: string }> = {
+  vscode: {
+    label: "VS Code / GitHub Copilot",
+    hint: "Open the MCP configuration command in VS Code and add this server entry. The API key is requested securely when the client connects.",
+  },
+  cursor: {
+    label: "Cursor",
+    hint: "Open Cursor's MCP configuration (~/.cursor/mcp.json or .cursor/mcp.json) and add this server entry.",
+  },
+  claudeDesktop: {
+    label: "Claude Desktop",
+    stdio: true,
+    hint: "Open Claude Desktop's configuration file and add this local server entry. Restart Claude Desktop after saving.",
+  },
+  claudeCode: {
+    label: "Claude Code",
+    hint: "Run this command in a terminal. Add --scope user to make the server available in all projects, or --scope project to write it to .mcp.json.",
+  },
+  hermes: {
+    label: "Hermes Agent",
+    hint: "Add this block to ~/.hermes/config.yaml. Hermes expands ${VAR} from ~/.hermes/.env, so store the API key there as JMXQ_MCPAPI_KEY. Run /reload-mcp in an active session afterwards.",
+  },
+  codex: {
+    label: "Codex CLI",
+    hint: "Add this table to ~/.codex/config.toml. Codex reads the API key from the environment variable named in bearer_token_env_var.",
+  },
+  gemini: {
+    label: "Gemini CLI",
+    hint: "Add this entry to ~/.gemini/settings.json (or .gemini/settings.json in a project) and restart Gemini CLI.",
+  },
+};
 interface Instance {
   id: string;
   name: string;
@@ -2677,25 +2715,29 @@ function ConnectionGuideView({
       : lanHostnameIsValid
         ? toConnectionEndpoint(selectedLanHostname, sessionAddress.protocol, streamablePort)
         : null;
-  const isClaudeDesktop = harness === "claudeDesktop";
-  const configuration = isClaudeDesktop
-    ? connectionInfo?.workingDirectory && connectionInfo.nodePath
-      ? JSON.stringify({
-        mcpServers: {
-          "jmxq-mcp-server": {
-            command: connectionInfo.nodePath,
-            args: ["build/index.js"],
-            cwd: connectionInfo.workingDirectory,
-            env: { JMXQ_STDIO_ONLY: "true" },
-          },
+  const isClaudeDesktop = harnessMeta[harness].stdio === true;
+  const apiKeyRequired = connectionInfo?.apiKeyRequired === true;
+  const bearerPlaceholder = "Bearer <JMXQ_MCPAPI_KEY>";
+  const buildStdioConfiguration = () => {
+    if (!connectionInfo?.workingDirectory || !connectionInfo.nodePath) return "";
+    const root = connectionInfo.workingDirectory.replace(/[\\/]+$/, "");
+    const separator = root.includes("\\") ? "\\" : "/";
+    return JSON.stringify({
+      mcpServers: {
+        "jmxq-mcp-server": {
+          command: connectionInfo.nodePath,
+          args: [`${root}${separator}build${separator}index.js`],
+          cwd: root,
+          env: { JMXQ_STDIO_ONLY: "true" },
         },
-      }, null, 2)
-      : ""
-    : endpoint
-      ? JSON.stringify(
-        harness === "vscode"
-        ? {
-          ...(connectionInfo?.apiKeyRequired
+      },
+    }, null, 2);
+  };
+  const buildHttpConfiguration = (url: string) => {
+    switch (harness) {
+      case "vscode":
+        return JSON.stringify({
+          ...(apiKeyRequired
             ? {
               inputs: [{
                 id: "jmxq-mcp-server-api-key",
@@ -2708,26 +2750,60 @@ function ConnectionGuideView({
           servers: {
             "jmxq-mcp-server": {
               type: "http",
-              url: endpoint,
-              ...(connectionInfo?.apiKeyRequired
+              url,
+              ...(apiKeyRequired
                 ? { headers: { Authorization: "Bearer ${input:jmxq-mcp-server-api-key}" } }
                 : {}),
             },
           },
-        }
-        : {
+        }, null, 2);
+      case "cursor":
+        return JSON.stringify({
           mcpServers: {
             "jmxq-mcp-server": {
-              url: endpoint,
-              ...(connectionInfo?.apiKeyRequired
-                ? { headers: { Authorization: "Bearer <JMXQ_MCPAPI_KEY>" } }
-                : {}),
+              url,
+              ...(apiKeyRequired ? { headers: { Authorization: bearerPlaceholder } } : {}),
             },
           },
-        },
-        null,
-        2,
-      )
+        }, null, 2);
+      case "gemini":
+        return JSON.stringify({
+          mcpServers: {
+            "jmxq-mcp-server": {
+              httpUrl: url,
+              ...(apiKeyRequired ? { headers: { Authorization: bearerPlaceholder } } : {}),
+            },
+          },
+        }, null, 2);
+      case "claudeCode":
+        return [
+          "claude mcp add --transport http jmxq-mcp-server",
+          JSON.stringify(url),
+          ...(apiKeyRequired ? [`--header ${JSON.stringify(`Authorization: ${bearerPlaceholder}`)}`] : []),
+        ].join(" ");
+      case "hermes":
+        return [
+          "mcp_servers:",
+          "  jmxq-mcp-server:",
+          `    url: ${JSON.stringify(url)}`,
+          ...(apiKeyRequired
+            ? ["    headers:", '      Authorization: "Bearer ${JMXQ_MCPAPI_KEY}"']
+            : []),
+        ].join("\n");
+      case "codex":
+        return [
+          "[mcp_servers.jmxq-mcp-server]",
+          `url = ${JSON.stringify(url)}`,
+          ...(apiKeyRequired ? ['bearer_token_env_var = "JMXQ_MCPAPI_KEY"'] : []),
+        ].join("\n");
+      default:
+        return "";
+    }
+  };
+  const configuration = isClaudeDesktop
+    ? buildStdioConfiguration()
+    : endpoint
+      ? buildHttpConfiguration(endpoint)
       : "";
   const copyConfiguration = () => {
     if (!configuration) return;
@@ -2770,9 +2846,9 @@ function ConnectionGuideView({
           <label>
             Harness
             <select value={harness} onChange={(event) => setHarness(event.target.value as Harness)}>
-              <option value="vscode">VS Code / GitHub Copilot</option>
-              <option value="cursor">Cursor</option>
-              <option value="claudeDesktop">Claude Desktop</option>
+              {(Object.keys(harnessMeta) as Harness[]).map((key) => (
+                <option key={key} value={key}>{harnessMeta[key].label}</option>
+              ))}
             </select>
           </label>
           {!isClaudeDesktop && (
@@ -2860,16 +2936,8 @@ function ConnectionGuideView({
         </div>
         <div className="connection-instructions">
           <div>
-            <h2>{harness === "vscode" ? "VS Code / GitHub Copilot" : harness === "cursor" ? "Cursor" : "Claude Desktop"}</h2>
-            <p>
-              {harness === "vscode"
-                ? "Open the MCP configuration command in VS Code and add this server entry. The API key is requested securely when the client connects."
-                : harness === "cursor" && connectionInfo?.apiKeyRequired
-                  ? "Open Cursor's MCP configuration and replace <JMXQ_MCPAPI_KEY> with the MCP API key before saving this server entry."
-                  : harness === "cursor"
-                    ? "Open Cursor's MCP configuration and add this server entry."
-                    : "Open Claude Desktop's configuration file and add this local server entry. Restart Claude Desktop after saving."}
-            </p>
+            <h2>{harnessMeta[harness].label}</h2>
+            <p>{harnessMeta[harness].hint}</p>
           </div>
           <div className="connection-actions">
             {connectionInfo?.apiKeyRequired && !isClaudeDesktop && (
