@@ -1,7 +1,19 @@
-import { exec } from 'child_process';
+import { runPowerShell } from './powershell.js';
 
 const SOURCE = 'JMX-QUERY MCP Server';
 const LOG_NAME = 'Application';
+// Event log messages are limited to roughly 31,839 characters.
+const MAX_MESSAGE_LENGTH = 30000;
+
+// Constant script: the message and its metadata arrive only through $JmxqInput.
+const WRITE_EVENT_SCRIPT = `
+$source = '${SOURCE}'
+if (-not [System.Diagnostics.EventLog]::SourceExists($source)) {
+    # Creating a source requires administrator rights; writing to an existing one does not.
+    New-EventLog -LogName '${LOG_NAME}' -Source $source -ErrorAction SilentlyContinue
+}
+Write-EventLog -LogName '${LOG_NAME}' -Source $source -EntryType ([string]$JmxqInput.entryType) -EventId ([int]$JmxqInput.eventId) -Message ([string]$JmxqInput.message)
+`.trim();
 
 export class WindowsEventLogger {
     static info(message: string) {
@@ -16,34 +28,19 @@ export class WindowsEventLogger {
         this.writeToEventLog('Error', message, eventId || 1001);
     }
 
-    private static writeToEventLog(entryType: string, message: string, eventId: number) {
-        const preparedMessage = this.prepare(message);
-
-        // PowerShell script to check for source and write log
-        // We use -ErrorAction SilentlyContinue because source creation requires Admin, 
-        // but writing to an existing source does not.
-        const psScript = `
-            $source = "${SOURCE}";
-            if (-not [System.Diagnostics.EventLog]::SourceExists($source)) {
-                # This might fail if not running as Admin, that's okay if it already exists
-                New-EventLog -LogName "${LOG_NAME}" -Source $source -ErrorAction SilentlyContinue
-            }
-            Write-EventLog -LogName "${LOG_NAME}" -Source $source -EntryType ${entryType} -EventId ${eventId} -Message "${preparedMessage.replace(/"/g, '`"')}";
-        `.trim();
-
-        const encodedScript = Buffer.from(psScript, 'utf16le').toString('base64');
-
-        exec(`powershell -NoProfile -NonInteractive -EncodedCommand ${encodedScript}`, (err) => {
-            if (err) {
-                // Fallback to console if everything fails
-                console.error('Failed to log to Windows Event Log:', err);
-            }
+    private static writeToEventLog(entryType: 'Information' | 'Warning' | 'Error', message: string, eventId: number) {
+        runPowerShell(WRITE_EVENT_SCRIPT, {
+            input: { entryType, eventId, message: this.prepare(message) },
+            timeoutMs: 30000,
+        }).catch(error => {
+            // Fallback to stderr; stdout must stay clean for the stdio MCP transport.
+            console.error('Failed to log to Windows Event Log:', error?.message || error);
         });
     }
 
     private static prepare(msg: string): string {
-        if (!msg) return "";
-        // Basic cleanup, PowerShell's -Message handles most characters fine when passed via EncodedCommand
-        return msg.trim();
+        if (!msg) return '';
+        const trimmed = msg.trim();
+        return trimmed.length > MAX_MESSAGE_LENGTH ? `${trimmed.slice(0, MAX_MESSAGE_LENGTH)}...` : trimmed;
     }
 }

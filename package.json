@@ -7,8 +7,10 @@
   "main": "build/index.js",
   "type": "module",
   "scripts": {
-    "build": "tsc && npm --prefix test-client run build",
-    "test": "npm run test:mcp && npm run test:bootstrap",
+    "build": "tsc && npm --prefix test-client run build && npm run notices",
+    "notices": "node scripts/generate-third-party-notices.js",
+    "test": "npm run test:mcp && npm run test:bootstrap && npm run test:security",
+    "test:security": "tsx --test test/security.test.ts",
     "test:mcp": "tsx --test test/mcp-workflow.test.ts",
     "test:bootstrap": "tsx --test test/bootstrap.test.ts",
     "bootstrap": "node scripts/bootstrap.js",

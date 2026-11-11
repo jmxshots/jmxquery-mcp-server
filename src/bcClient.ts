@@ -1,11 +1,11 @@
 import { request } from 'undici';
 import { pino } from 'pino';
 import { config } from './config.js';
-import { execSync } from 'child_process';
 // @ts-ignore
 import { NtlmClient } from 'node-client-ntlm';
 import { WindowsEventLogger } from './utils/eventLogger.js';
 import { getOAuthToken } from './utils/oauthProvider.js';
+import { runPowerShell } from './utils/powershell.js';
 import { BcInstanceConfig } from './instances/model.js';
 
 const logger = pino({
@@ -41,6 +41,28 @@ function toSafeLogPreview(input: string, maxLen = 240): string {
     }
     return `${redacted.slice(0, maxLen)}...`;
 }
+
+// SSO scripts are constants. URI, request ID, and body arrive only through $JmxqInput
+// (see runPowerShell), so script content and URLs can never be executed as code.
+const SSO_POST_SCRIPT = `
+$headers = @{ 'Accept' = 'application/json'; 'X-Request-ID' = [string]$JmxqInput.requestId }
+$bodyBytes = [System.Text.Encoding]::UTF8.GetBytes([string]$JmxqInput.body)
+$response = Invoke-RestMethod -Uri ([string]$JmxqInput.uri) -Method Post -Body $bodyBytes -ContentType 'application/json; charset=utf-8' -UseDefaultCredentials -UseBasicParsing -Headers $headers
+if ($null -eq $response) { return '' }
+$response | ConvertTo-Json -Depth 10 -Compress
+`.trim();
+
+const SSO_TEST_SCRIPT = `
+$headers = @{ 'Accept' = 'application/json'; 'X-Request-ID' = [string]$JmxqInput.requestId }
+$response = Invoke-WebRequest -Uri ([string]$JmxqInput.uri) -Method Get -UseDefaultCredentials -UseBasicParsing -Headers $headers -ErrorAction Stop
+if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 400) { throw "HTTP $($response.StatusCode)" }
+`.trim();
+
+const SSO_GET_SCRIPT = `
+$headers = @{ 'Accept' = 'application/json'; 'X-Request-ID' = [string]$JmxqInput.requestId }
+$response = Invoke-RestMethod -Uri ([string]$JmxqInput.uri) -Method Get -UseDefaultCredentials -UseBasicParsing -Headers $headers -ErrorAction Stop
+$response | ConvertTo-Json -Depth 10 -Compress
+`.trim();
 
 const normalizeUrl = (url: string): string => url.endsWith('/') ? url : `${url}/`;
 
@@ -116,7 +138,7 @@ export class BcClient {
 
         try {
             if (this.instance.authType === 'SSO') {
-                this.testViaPowerShell(this.baseUrl, requestId);
+                await this.testViaPowerShell(this.baseUrl, requestId);
             } else if (this.instance.authType === 'NTLM') {
                 const ntlmClient = new (NtlmClient as any)(
                     this.instance.username,
@@ -176,7 +198,7 @@ export class BcClient {
 
         try {
             if (this.instance.authType === 'SSO') {
-                responseBody = this.getViaPowerShell(url, requestId);
+                responseBody = await this.getViaPowerShell(url, requestId);
                 statusCode = 200;
             } else if (this.instance.authType === 'NTLM') {
                 const ntlmClient = new (NtlmClient as any)(
@@ -257,7 +279,7 @@ export class BcClient {
 
             if (this.instance.authType === 'SSO') {
                 // Use PowerShell bridge for Integrated Windows Auth (SSO)
-                responseBody = this.callViaPowerShell(url.toString(), payload, requestId);
+                responseBody = await this.callViaPowerShell(url.toString(), payload, requestId);
             } else if (this.instance.authType === 'NTLM') {
                 // Use node-client-ntlm for NTLM
                 // We use any here because the library types are unreliable/missing
@@ -347,35 +369,12 @@ export class BcClient {
         }
     }
 
-    private callViaPowerShell(url: string, payload: any, requestId: string): string {
-        const jsonPayload = JSON.stringify(payload);
-
-        // Construct PowerShell script
-        // Note: No need for manual escaping of quotes here because it's Base64 encoded
-        const psScript = `
-            $ProgressPreference = 'SilentlyContinue';
-            [Console]::OutputEncoding = [System.Text.Encoding]::UTF8;
-            $headers = @{ 
-                "Accept" = "application/json"; 
-                "X-Request-ID" = "${requestId}" 
-            };
-            $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes('${jsonPayload.replace(/'/g, "''")}');
-            $response = Invoke-RestMethod -Uri "${url}" -Method Post -Body $bodyBytes -ContentType "application/json; charset=utf-8" -UseDefaultCredentials -UseBasicParsing -Headers $headers;
-            if ($null -eq $response) { return "" }
-            $response | ConvertTo-Json -Depth 10 -Compress;
-        `.trim();
-
-        // PowerShell -EncodedCommand expects UTF-16LE Base64
-        const scriptBuffer = Buffer.from(psScript, 'utf16le');
-        const base64Script = scriptBuffer.toString('base64');
-
+    private async callViaPowerShell(url: string, payload: unknown, requestId: string): Promise<string> {
         try {
-            const output = execSync(`powershell -NoProfile -NonInteractive -EncodedCommand ${base64Script}`, {
-                encoding: 'utf-8',
-                timeout: this.timeoutMs,
-                maxBuffer: 10 * 1024 * 1024 // 10MB buffer for large responses
+            return await runPowerShell(SSO_POST_SCRIPT, {
+                input: { uri: url, requestId, body: JSON.stringify(payload) },
+                timeoutMs: this.timeoutMs,
             });
-            return output.trim();
         } catch (err: any) {
             logger.error({
                 requestId,
@@ -394,10 +393,10 @@ export class BcClient {
             }
 
             // 3. Try to extract JSON error from CLIXML string tags <S S="Error">...</S>
-            // Improved: First strip all CLIXML tags to avoid fragments breaking the JSON structure
+            // First strip all CLIXML tags to avoid fragments breaking the JSON structure
             const cleanedMessage = message.replace(/<[^>]+>/g, '').trim();
             const jsonMatch = cleanedMessage.match(/({(?:\s|[^}]*)"error"(?:\s|[^}]*)})/);
-            
+
             if (jsonMatch) {
                 try {
                     const parsed = JSON.parse(jsonMatch[0]);
@@ -418,6 +417,10 @@ export class BcClient {
                 message = cleanedMessage;
             }
 
+            if (err?.killed) {
+                message = `PowerShell request timed out after ${this.timeoutMs}ms`;
+            }
+
             if (message.includes('Authentication_InvalidCredentials') || message.includes('401')) {
                 message += '\n\nHINT: If the server is running as a Windows Service, ensure the service is configured to "Log On" as a domain user with Business Central access. The default LocalSystem account cannot use SSO.';
             }
@@ -430,44 +433,24 @@ export class BcClient {
         }
     }
 
-    private testViaPowerShell(url: string, requestId: string): void {
-        const escapedUrl = url.replace(/'/g, "''");
-        const psScript = `
-            $ProgressPreference = 'SilentlyContinue';
-            $headers = @{ "Accept" = "application/json"; "X-Request-ID" = "${requestId}" };
-            $response = Invoke-WebRequest -Uri '${escapedUrl}' -Method Get -UseDefaultCredentials -UseBasicParsing -Headers $headers -ErrorAction Stop;
-            if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 400) { throw "HTTP $($response.StatusCode)" }
-        `.trim();
-        const base64Script = Buffer.from(psScript, 'utf16le').toString('base64');
-
+    private async testViaPowerShell(url: string, requestId: string): Promise<void> {
         try {
-            execSync(`powershell -NoProfile -NonInteractive -EncodedCommand ${base64Script}`, {
-                encoding: 'utf-8',
-                timeout: this.timeoutMs,
+            await runPowerShell(SSO_TEST_SCRIPT, {
+                input: { uri: url, requestId },
+                timeoutMs: this.timeoutMs,
                 maxBuffer: 1024 * 1024,
             });
-        } catch (error: any) {
+        } catch {
             throw new Error('Business Central SSO connection test failed.');
         }
     }
 
-    private getViaPowerShell(url: string, requestId: string): string {
-        const escapedUrl = url.replace(/'/g, "''");
-        const psScript = `
-            $ProgressPreference = 'SilentlyContinue';
-            [Console]::OutputEncoding = [System.Text.Encoding]::UTF8;
-            $headers = @{ "Accept" = "application/json"; "X-Request-ID" = "${requestId}" };
-            $response = Invoke-RestMethod -Uri '${escapedUrl}' -Method Get -UseDefaultCredentials -UseBasicParsing -Headers $headers -ErrorAction Stop;
-            $response | ConvertTo-Json -Depth 10 -Compress;
-        `.trim();
-        const base64Script = Buffer.from(psScript, 'utf16le').toString('base64');
-
+    private async getViaPowerShell(url: string, requestId: string): Promise<string> {
         try {
-            return execSync(`powershell -NoProfile -NonInteractive -EncodedCommand ${base64Script}`, {
-                encoding: 'utf-8',
-                timeout: this.timeoutMs,
-                maxBuffer: 10 * 1024 * 1024,
-            }).trim();
+            return await runPowerShell(SSO_GET_SCRIPT, {
+                input: { uri: url, requestId },
+                timeoutMs: this.timeoutMs,
+            });
         } catch {
             throw new Error('Business Central SSO company discovery failed.');
         }

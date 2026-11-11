@@ -11,7 +11,7 @@ import { migrateLegacyInstanceStore } from '../src/instances/registry.js';
 import { LogService } from '../src/logging/logService.js';
 import type { LogService } from '../src/logging/logService.js';
 import { createMcpServer } from '../src/mcp/server.js';
-import { createInstanceSelection } from '../src/mcp/tools.js';
+import { createInstanceSelection, executeTool } from '../src/mcp/tools.js';
 
 const timestamp = '2026-08-04T00:00:00.000Z';
 
@@ -199,4 +199,44 @@ test('MCP protocol teaches the workflow and returns structured targets', async (
         await client.close();
         await server.close();
     }
+});
+test('JMX-QUERY error envelopes become MCP tool errors and are audited as errors', async t => {
+    const logDirectory = mkdtempSync(path.join(tmpdir(), 'jmxquery-tool-errors-'));
+    t.after(() => rmSync(logDirectory, { recursive: true, force: true }));
+    const logService = new LogService(logDirectory, 30, 1000);
+    const instance = createInstance('Production', true, 'Cronus');
+    const responses: Record<string, unknown> = {
+        DescribeExecutionContext: { result: { companies: ['Cronus'] } },
+        ExecuteScript: { error: { code: 'JMXQ_Error', message: 'FILTER: Expected quoted field name.' } },
+        SearchTables: { result: { tables: [] } },
+    };
+    const clientFactory = {
+        listInstances: () => [instance],
+        resolveEnabledInstance: () => ({
+            instance,
+            client: { callAction: async (_service: string, action: string) => responses[action] },
+        }),
+    } as unknown as BcClientFactory;
+
+    const failed = await executeTool('jmxq_executeScript', {
+        bcInstance: 'Production',
+        executionContextCode: 'ALL',
+        executionCompany: 'Cronus',
+        script: 'FROM Customer AS c | FILTER c.Name = \'x\'',
+    }, clientFactory, logService);
+    assert.equal(failed.isError, true);
+    assert.equal(failed.content[0].text, 'Error: FILTER: Expected quoted field name. (JMXQ_Error)');
+
+    const succeeded = await executeTool('jmxq_searchTables', {
+        bcInstance: 'Production',
+        executionContextCode: 'ALL',
+        searchPattern: '*cust*',
+    }, clientFactory, logService);
+    assert.equal(succeeded.isError, undefined);
+
+    const records = await logService.query();
+    const scriptRecord = records.find(record => record.tool === 'jmxq_executeScript');
+    assert.equal(scriptRecord?.status, 'error');
+    assert.equal(scriptRecord?.errorType, 'JmxqError');
+    assert.equal(records.find(record => record.tool === 'jmxq_searchTables')?.status, 'success');
 });

@@ -211,12 +211,26 @@ function getAllowedExecutionCompanies(description: unknown): string[] {
         : [];
 }
 
-function getJmxqError(result: unknown): string | undefined {
+/** An error reported by the JMX-QUERY extension in an otherwise successful HTTP response. */
+export class JmxqError extends Error {
+    constructor(message: string, readonly code?: string) {
+        super(code ? `${message} (${code})` : message);
+        this.name = 'JmxqError';
+    }
+}
+
+/** Returns the JMX-QUERY error envelope ({ "error": { code, message } }) of a BC result, if any. */
+export function getJmxqError(result: unknown): JmxqError | undefined {
     if (!result || typeof result !== 'object') return undefined;
     const error = (result as { error?: unknown }).error;
-    if (!error || typeof error !== 'object') return undefined;
-    const message = (error as { message?: unknown }).message;
-    return typeof message === 'string' ? message : 'JMX-QUERY rejected the request.';
+    if (!error) return undefined;
+    if (typeof error === 'string') return new JmxqError(error);
+    if (typeof error !== 'object') return undefined;
+    const { message, code } = error as { message?: unknown; code?: unknown };
+    return new JmxqError(
+        typeof message === 'string' && message.trim() ? message : 'JMX-QUERY rejected the request.',
+        typeof code === 'string' && code.trim() ? code : undefined,
+    );
 }
 
 export async function executeTool(
@@ -297,7 +311,7 @@ export async function executeTool(
                 }
                 const contextDescription = await callBcAction('JMXQ_ApiInfoService', 'DescribeExecutionContext', { executionContextCode });
                 const contextError = getJmxqError(contextDescription);
-                if (contextError) throw new Error(contextError);
+                if (contextError) throw contextError;
                 const allowedCompanies = getAllowedExecutionCompanies(contextDescription);
                 if (!allowedCompanies.includes(executionCompany)) {
                     throw new Error(`Execution Company '${executionCompany}' is not allowed by Execution Context '${executionContextCode}'. Allowed companies: ${allowedCompanies.join(', ') || 'none'}.`);
@@ -307,6 +321,11 @@ export async function executeTool(
             default:
                 throw new Error(`Tool not found: ${name}`);
         }
+
+        // JMX-QUERY reports script and validation errors inside an HTTP 200 response.
+        // Surface them as tool errors so MCP clients see isError and the audit log records them.
+        const jmxqError = isBcTool ? getJmxqError(result) : undefined;
+        if (jmxqError) throw jmxqError;
 
         const resultText = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
         const durationMs = Date.now() - startedAt;
