@@ -1,7 +1,8 @@
 import { z } from 'zod';
-const idSchema = z.string().uuid();
+const idSchema = z.uuid();
 const nameSchema = z.string().trim().min(1).max(100);
-const isoDateSchema = z.string().datetime();
+const isoDateSchema = z.iso.datetime();
+const urlSchema = z.url();
 const baseInstanceFields = {
     id: idSchema,
     name: nameSchema,
@@ -15,21 +16,21 @@ const baseInstanceFields = {
 export const basicInstanceSchema = z.object({
     ...baseInstanceFields,
     authType: z.literal('BASIC'),
-    baseUrl: z.string().url(),
+    baseUrl: urlSchema,
     username: z.string().min(1),
     password: z.string().min(1),
 });
 export const ntlmInstanceSchema = z.object({
     ...baseInstanceFields,
     authType: z.literal('NTLM'),
-    baseUrl: z.string().url(),
+    baseUrl: urlSchema,
     username: z.string().min(1),
     password: z.string().min(1),
 });
 export const ssoInstanceSchema = z.object({
     ...baseInstanceFields,
     authType: z.literal('SSO'),
-    baseUrl: z.string().url(),
+    baseUrl: urlSchema,
 });
 export const oauthInstanceSchema = z.object({
     ...baseInstanceFields,
@@ -59,19 +60,19 @@ const connectionConfigBaseSchema = z.object({
 export const connectionConfigSchema = z.discriminatedUnion('authType', [
     connectionConfigBaseSchema.extend({
         authType: z.literal('BASIC'),
-        baseUrl: z.string().url(),
+        baseUrl: urlSchema,
         username: z.string().min(1),
         password: z.string().min(1),
     }),
     connectionConfigBaseSchema.extend({
         authType: z.literal('NTLM'),
-        baseUrl: z.string().url(),
+        baseUrl: urlSchema,
         username: z.string().min(1),
         password: z.string().min(1),
     }),
     connectionConfigBaseSchema.extend({
         authType: z.literal('SSO'),
-        baseUrl: z.string().url(),
+        baseUrl: urlSchema,
     }),
     connectionConfigBaseSchema.extend({
         authType: z.literal('OAUTH'),
@@ -84,19 +85,19 @@ export const connectionConfigSchema = z.discriminatedUnion('authType', [
 export const instanceCreateSchema = z.discriminatedUnion('authType', [
     createInstanceBaseSchema.extend({
         authType: z.literal('BASIC'),
-        baseUrl: z.string().url(),
+        baseUrl: urlSchema,
         username: z.string().min(1),
         password: z.string().min(1),
     }),
     createInstanceBaseSchema.extend({
         authType: z.literal('NTLM'),
-        baseUrl: z.string().url(),
+        baseUrl: urlSchema,
         username: z.string().min(1),
         password: z.string().min(1),
     }),
     createInstanceBaseSchema.extend({
         authType: z.literal('SSO'),
-        baseUrl: z.string().url(),
+        baseUrl: urlSchema,
     }),
     createInstanceBaseSchema.extend({
         authType: z.literal('OAUTH'),
@@ -106,19 +107,19 @@ export const instanceCreateSchema = z.discriminatedUnion('authType', [
         environment: z.string().trim().min(1).default('Production'),
     }),
 ]);
-export const instanceUpdateSchema = z.object({
+export const instanceUpdateSchema = z.strictObject({
     description: z.string().trim().max(500).optional(),
     enabled: z.boolean().optional(),
     timeoutMs: z.number().int().positive().max(300000).optional(),
     technicalCompany: z.string().trim().min(1).max(250).optional(),
-    baseUrl: z.string().url().optional(),
+    baseUrl: urlSchema.optional(),
     username: z.string().min(1).optional(),
     password: z.string().min(1).optional(),
     tenantId: z.string().trim().min(1).optional(),
     clientId: z.string().trim().min(1).optional(),
     clientSecret: z.string().min(1).optional(),
     environment: z.string().trim().min(1).optional(),
-}).strict();
+});
 export const instanceStoreSchema = z.object({
     version: z.literal(1),
     instances: z.array(instanceSchema).default([]),
