@@ -180,5 +180,7 @@ const output = [
     ...binaries.map(renderPackage),
 ].join('\n');
 
-fs.writeFileSync(outputPath, `${output.trimEnd()}\n`, 'utf8');
+// License files of some packages use CRLF. Write LF only, matching the committed file, so a
+// build on Windows does not leave THIRD_PARTY_NOTICES.md modified in Git.
+fs.writeFileSync(outputPath, `${output.replace(/\r\n?/g, '\n').trimEnd()}\n`, 'utf8');
 console.log(`Wrote ${path.relative(rootDirectory, outputPath)}: ${sections.map(section => `${section.packages.length} ${section.title}`).join(', ')}, ${binaries.length} bundled binaries.`);

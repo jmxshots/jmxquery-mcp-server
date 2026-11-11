@@ -7,7 +7,7 @@
   "main": "build/index.js",
   "type": "module",
   "scripts": {
-    "build": "tsc && npm --prefix test-client run build && npm run notices",
+    "build": "tsc && node scripts/normalize-line-endings.js && npm --prefix test-client run build && npm run notices",
     "notices": "node scripts/generate-third-party-notices.js",
     "test": "npm run test:mcp && npm run test:bootstrap && npm run test:security && npm run test:model && npm run test:update",
     "test:security": "tsx --test test/security.test.ts",
