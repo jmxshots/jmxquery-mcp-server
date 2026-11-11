@@ -1,4 +1,5 @@
 import { Service } from 'node-windows';
+import { spawnSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -16,7 +17,6 @@ console.log = (...args) => {
 
 const serviceName = 'JMX-QUERY MCP Server';
 const envFilePath = path.join(__dirname, '..', '.env');
-let updatingExistingService = false;
 
 // Build service env: inline ALL variables from the .env file directly so that
 // winsw sets them on the process — this is more reliable than relying on
@@ -56,19 +56,38 @@ svc.on('install', function () {
     svc.start();
 });
 
+// node-windows runs NET STOP/START through elevate.cmd, which returns before the command
+// finishes. A restart therefore issues NET START while the service is still stopping, and
+// the start fails silently. Run both commands synchronously instead and check the result.
+const runNet = (action, serviceName) => spawnSync('net.exe', [action, serviceName], {
+    encoding: 'utf8',
+    windowsHide: true,
+});
+
 // Check if the service is already installed
 svc.on('alreadyinstalled', function () {
-    updatingExistingService = true;
     console.log('Updating the existing service...');
     fs.writeFileSync(path.join(svc.root, `${svc.id}.xml`), svc._xml, 'utf8');
-    const startService = () => svc.start();
-    svc.once('stop', startService);
-    svc.once('alreadystopped', startService);
-    svc.stop();
+
+    const serviceName = `${svc.id}.exe`;
+    const stopped = runNet('stop', serviceName);
+    // NET STOP exits with 2 when the service was not running.
+    if (stopped.error || (stopped.status !== 0 && stopped.status !== 2)) {
+        console.error(`Stopping the service failed: ${stopped.error?.message ?? stopped.stderr.trim()}`);
+        process.exitCode = 1;
+        return;
+    }
+    const started = runNet('start', serviceName);
+    if (started.error || started.status !== 0) {
+        console.error(`Starting the service failed: ${started.error?.message ?? started.stderr.trim()}`);
+        process.exitCode = 1;
+        return;
+    }
+    console.log('Service updated and restarted successfully.');
 });
 
 svc.on('start', function () {
-    console.log(updatingExistingService ? 'Service updated and restarted successfully.' : 'Service started successfully.');
+    console.log('Service started successfully.');
 });
 
 // Log any errors
