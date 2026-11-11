@@ -23,6 +23,8 @@ export interface AdminApiDependencies {
     logService: LogService;
     logger: Logger;
     documentationPath: string;
+    /** Self-contained HTML overview (docs/jmxquery-mcp-overview.html). Optional; the route returns 404 when unset. */
+    overviewPath?: string;
     /** A session ends after this much time without an Admin API request. Default: 60 minutes. */
     sessionIdleTimeoutMs?: number;
     /** A session ends this long after login, regardless of activity. Default: 12 hours. */
@@ -496,6 +498,27 @@ export async function registerAdminApi(app: FastifyInstance, deps: AdminApiDepen
                     .send(documentation);
             } catch {
                 return reply.code(404).send({ error: 'Documentation is unavailable.' });
+            }
+        });
+
+        // Opened in a new browser tab; the session cookie (Path=/admin/api) authenticates it.
+        // The page is static and self-contained, so the CSP blocks every network request.
+        api.get('/documentation/overview', async (_request, reply) => {
+            if (!deps.overviewPath) return reply.code(404).send({ error: 'Overview is unavailable.' });
+            try {
+                const overview = await readFile(deps.overviewPath, 'utf8');
+                return reply
+                    .header('cache-control', 'no-store')
+                    .header('x-content-type-options', 'nosniff')
+                    .header('referrer-policy', 'no-referrer')
+                    .header(
+                        'content-security-policy',
+                        "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+                    )
+                    .type('text/html; charset=utf-8')
+                    .send(overview);
+            } catch {
+                return reply.code(404).send({ error: 'Overview is unavailable.' });
             }
         });
     }, { prefix: ADMIN_API_PREFIX });

@@ -217,6 +217,8 @@ Tool logs are written as daily JSONL files. They include target metadata, timing
 
 The **Documentation** view retrieves and renders this root `README.md` after Admin authentication. It supports GitHub Flavored Markdown, tables, heading links, and code blocks. Raw HTML is not rendered.
 
+**Visual overview** opens `docs/jmxquery-mcp-overview.html` in a new browser tab: an illustrated summary of architecture, key concepts, setup flow, client configuration, agent workflow, and security layers. Like the README, it is served only to an authenticated Admin session, at `/admin/api/documentation/overview`.
+
 ## MCP Endpoints
 
 | Transport | Endpoint |

@@ -12,6 +12,7 @@ import {
   BookOpen,
   Building2,
   Copy,
+  ExternalLink,
   Eye,
   FileText,
   KeyRound,
@@ -575,7 +576,9 @@ function App() {
         {view === "connection" && (
           <ConnectionGuideView session={session} request={request} />
         )}
-        {view === "documentation" && <DocumentationView request={request} />}
+        {view === "documentation" && (
+          <DocumentationView session={session} request={request} />
+        )}
       </section>
     </main>
   );
@@ -2998,8 +3001,10 @@ function ConnectionGuideView({
 }
 
 function DocumentationView({
+  session,
   request,
 }: {
+  session: Session;
   request: <T>(path: string, options?: RequestInit) => Promise<T>;
 }) {
   const [markdown, setMarkdown] = useState("");
@@ -3033,6 +3038,18 @@ function DocumentationView({
         <div>
           <p className="eyebrow">Reference</p>
           <h1>Documentation</h1>
+        </div>
+        <div className="button-row">
+          <a
+            className="secondary-button"
+            href={`${session.serverUrl}/admin/api/documentation/overview`}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open the illustrated architecture, setup and workflow overview in a new tab"
+          >
+            <ExternalLink size={17} aria-hidden="true" />
+            Visual overview
+          </a>
         </div>
       </header>
       {error && (

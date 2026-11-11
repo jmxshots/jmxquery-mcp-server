@@ -1,0 +1,1177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JMX-QUERY MCP Server Guide</title>
+<meta name="description" content="Configuration and usage flow of the JMX-QUERY MCP Server for Microsoft Dynamics 365 Business Central.">
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --surface-2: #eef1f5;
+    --text: #18202c;
+    --muted: #5a6474;
+    --border: #d5dbe4;
+    --line: #7b8595;
+    --accent: #2156c4;
+    --accent-soft: #e7eefc;
+    --teal: #0d7a74;
+    --teal-soft: #e0f3f1;
+    --violet: #6a44bf;
+    --violet-soft: #efe9fb;
+    --amber: #9a5a00;
+    --amber-soft: #fcf0dc;
+    --red: #b42318;
+    --red-soft: #fdeceb;
+    --code-bg: #f1f3f7;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1319;
+      --surface: #171c24;
+      --surface-2: #1f2530;
+      --text: #e5e9f0;
+      --muted: #9aa4b4;
+      --border: #313a48;
+      --line: #8792a4;
+      --accent: #7aa5ff;
+      --accent-soft: #1b2944;
+      --teal: #4fd1c5;
+      --teal-soft: #12302e;
+      --violet: #b69cff;
+      --violet-soft: #271f3d;
+      --amber: #f0b45a;
+      --amber-soft: #352610;
+      --red: #ff8a80;
+      --red-soft: #3a1a18;
+      --code-bg: #1c222c;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1319;
+    --surface: #171c24;
+    --surface-2: #1f2530;
+    --text: #e5e9f0;
+    --muted: #9aa4b4;
+    --border: #313a48;
+    --line: #8792a4;
+    --accent: #7aa5ff;
+    --accent-soft: #1b2944;
+    --teal: #4fd1c5;
+    --teal-soft: #12302e;
+    --violet: #b69cff;
+    --violet-soft: #271f3d;
+    --amber: #f0b45a;
+    --amber-soft: #352610;
+    --red: #ff8a80;
+    --red-soft: #3a1a18;
+    --code-bg: #1c222c;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 72px; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.6 "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  a { color: var(--accent); }
+  code, pre { font-family: "Cascadia Code", Consolas, "SFMono-Regular", Menlo, monospace; font-size: 0.88em; font-variant-ligatures: none; }
+  code { background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    line-height: 1.5;
+  }
+  pre code { background: none; padding: 0; }
+
+  .topbar {
+    position: sticky; top: 0; z-index: 10;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar-inner {
+    max-width: 1080px; margin: 0 auto; padding: 10px 16px;
+    display: flex; gap: 6px 18px; flex-wrap: wrap; align-items: center;
+  }
+  .brand { font-weight: 700; margin-right: auto; white-space: nowrap; }
+  .topbar nav { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.9rem; }
+  .topbar nav a { color: var(--muted); text-decoration: none; }
+  .topbar nav a:hover { color: var(--accent); }
+
+  main { max-width: 1080px; margin: 0 auto; padding: 0 16px 64px; }
+  header.hero { padding: 48px 0 24px; }
+  .eyebrow { color: var(--accent); font-weight: 600; font-size: 0.85rem; letter-spacing: 0.06em; text-transform: uppercase; margin: 0 0 8px; }
+  h1 { font-size: clamp(1.9rem, 4vw, 2.6rem); line-height: 1.15; margin: 0 0 14px; }
+  .lead { font-size: 1.12rem; color: var(--muted); max-width: 760px; margin: 0; }
+
+  section { padding-top: 40px; }
+  h2 { font-size: 1.55rem; margin: 0 0 6px; }
+  h2 .num { color: var(--accent); margin-right: 8px; }
+  h3 { font-size: 1.12rem; margin: 26px 0 8px; }
+  .sub { color: var(--muted); margin: 0 0 18px; max-width: 780px; }
+
+  figure.diagram {
+    margin: 18px 0 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    overflow-x: auto;
+  }
+  figure.diagram svg { display: block; width: 100%; height: auto; min-width: 720px; }
+  figure.diagram figcaption { color: var(--muted); font-size: 0.88rem; margin-top: 10px; }
+
+  .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px;
+  }
+  .card h4 { margin: 0 0 6px; font-size: 1rem; }
+  .card p { margin: 0; color: var(--muted); font-size: 0.94rem; }
+  .card.accent { border-top: 3px solid var(--accent); }
+  .card.teal { border-top: 3px solid var(--teal); }
+  .card.violet { border-top: 3px solid var(--violet); }
+  .card.amber { border-top: 3px solid var(--amber); }
+
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); margin: 12px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.93rem; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--surface-2); font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+
+  ol.steps { list-style: none; padding: 0; margin: 12px 0; counter-reset: step; }
+  ol.steps > li {
+    counter-increment: step; position: relative;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 18px 14px 60px; margin-bottom: 10px;
+  }
+  ol.steps > li::before {
+    content: counter(step); position: absolute; left: 16px; top: 14px;
+    width: 30px; height: 30px; border-radius: 50%;
+    background: var(--accent); color: var(--surface); font-weight: 700;
+    display: grid; place-items: center; font-size: 0.95rem;
+  }
+  ol.steps > li strong:first-child { display: block; margin-bottom: 2px; }
+  ol.steps ul { margin: 6px 0 0; padding-left: 20px; }
+  .where { display: inline-block; font-size: 0.75rem; font-weight: 600; padding: 1px 8px; border-radius: 999px; margin-left: 6px; vertical-align: 2px; }
+  .where.bc { background: var(--teal-soft); color: var(--teal); }
+  .where.srv { background: var(--accent-soft); color: var(--accent); }
+  .where.cli { background: var(--violet-soft); color: var(--violet); }
+
+  .note {
+    border-left: 4px solid var(--amber); background: var(--amber-soft);
+    padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 14px 0;
+  }
+  .note.warn { border-left-color: var(--red); background: var(--red-soft); }
+  .note p { margin: 0; }
+
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .tabs button {
+    font: inherit; font-size: 0.9rem; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+    padding: 6px 12px; border-radius: 999px;
+  }
+  .tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+  .tabpanel[hidden] { display: none; }
+
+  footer { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.88rem; }
+
+  /* SVG styling */
+  svg text { font-family: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif; }
+  .s-group { fill: var(--surface-2); stroke: var(--border); stroke-width: 1; }
+  .s-box { fill: var(--surface); stroke: var(--border); stroke-width: 1.2; }
+  .s-accent { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; }
+  .s-teal { fill: var(--teal-soft); stroke: var(--teal); stroke-width: 1.5; }
+  .s-violet { fill: var(--violet-soft); stroke: var(--violet); stroke-width: 1.5; }
+  .s-amber { fill: var(--amber-soft); stroke: var(--amber); stroke-width: 1.5; }
+  .s-red { fill: var(--red-soft); stroke: var(--red); stroke-width: 1.5; }
+  .s-dashed { stroke-dasharray: 6 4; }
+  .s-t { fill: var(--text); font-size: 13px; }
+  .s-tb { fill: var(--text); font-size: 13.5px; font-weight: 600; }
+  .s-th { fill: var(--text); font-size: 15px; font-weight: 700; }
+  .s-m { fill: var(--muted); font-size: 11.5px; }
+  .s-cap { fill: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; }
+  .s-ca { fill: var(--accent); }
+  .s-ct { fill: var(--teal); }
+  .s-cv { fill: var(--violet); }
+  .s-cr { fill: var(--red); }
+  .s-line { stroke: var(--line); stroke-width: 1.5; fill: none; }
+  .s-line-a { stroke: var(--accent); stroke-width: 1.6; fill: none; }
+  .s-line-t { stroke: var(--teal); stroke-width: 1.6; fill: none; }
+  .s-ret { stroke: var(--line); stroke-width: 1.3; fill: none; stroke-dasharray: 5 4; }
+  .s-life { stroke: var(--border); stroke-width: 1.5; stroke-dasharray: 4 5; }
+  .s-arrowhead { fill: var(--line); }
+  .s-arrowhead-a { fill: var(--accent); }
+  .s-arrowhead-t { fill: var(--teal); }
+  .s-num { fill: var(--accent); }
+  .s-numt { fill: var(--surface); font-size: 11px; font-weight: 700; }
+  .s-band { fill: var(--surface-2); }
+  .s-kw { fill: var(--text); font-family: "Cascadia Code", Consolas, Menlo, monospace; font-size: 11.5px; font-weight: 700; }
+  .s-code { fill: var(--text); font-family: "Cascadia Code", Consolas, Menlo, monospace; font-size: 12px; font-variant-ligatures: none; }
+  .grid.five { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+
+  .card .prompt {
+    margin-top: 10px; color: var(--text); font-style: italic; font-size: 0.92rem;
+    border-left: 3px solid var(--violet); padding-left: 10px;
+  }
+  .card pre { margin: 8px 0 0; }
+
+  @media (max-width: 640px) {
+    header.hero { padding-top: 28px; }
+    ol.steps > li { padding-left: 52px; }
+    ol.steps > li::before { left: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Shared SVG markers -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="s-arrowhead"/>
+    </marker>
+    <marker id="arr-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="s-arrowhead-a"/>
+    </marker>
+    <marker id="arr-t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="s-arrowhead-t"/>
+    </marker>
+  </defs>
+</svg>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <span class="brand">JMX-QUERY MCP Server</span>
+    <nav aria-label="Sections">
+      <a href="#architecture">Architecture</a>
+      <a href="#jmxquery">JMX-QUERY</a>
+      <a href="#concepts">Concepts</a>
+      <a href="#setup">Setup</a>
+      <a href="#configuration">Configuration</a>
+      <a href="#clients">Clients</a>
+      <a href="#workflow">Agent workflow</a>
+      <a href="#security">Security</a>
+      <a href="#operations">Operations</a>
+    </nav>
+  </div>
+</div>
+
+<main>
+  <header class="hero">
+    <p class="eyebrow">Admin &amp; consultant guide</p>
+    <h1>Connecting AI agents to Business Central with JMX&#8209;QUERY</h1>
+    <p class="lead">
+      The JMX-QUERY MCP Server is a Windows-hosted Model Context Protocol server. It lets AI clients such as
+      GitHub Copilot, Cursor or Claude discover Business Central metadata and run JMX-QUERY scripts, while
+      Business Central decides what each request may read or change. This page explains how the pieces fit
+      together, how to configure them, and what happens when an agent answers a question.
+    </p>
+  </header>
+
+  <!-- 1 Architecture -->
+  <section id="architecture">
+    <h2><span class="num">1</span>Architecture at a glance</h2>
+    <p class="sub">
+      One server process serves all MCP clients and can connect to any number of Business Central instances.
+      Connection data stays on the server; clients only know the server URL and the MCP key.
+    </p>
+
+    <figure class="diagram">
+      <svg viewBox="0 0 980 470" role="img" aria-labelledby="arch-title arch-desc">
+        <title id="arch-title">System architecture</title>
+        <desc id="arch-desc">MCP clients connect to the JMX-QUERY MCP Server over Streamable HTTP, SSE or Stdio. The server stores instances encrypted, writes audit logs and calls Business Central instances over OData V4, where the JMX-QUERY app and execution contexts enforce permissions.</desc>
+
+        <!-- Clients -->
+        <text x="18" y="28" class="s-cap">MCP CLIENTS</text>
+        <rect x="10" y="40" width="230" height="330" rx="12" class="s-group"/>
+        <rect x="26" y="58" width="198" height="50" rx="8" class="s-violet"/>
+        <text x="40" y="79" class="s-tb">VS Code + GitHub Copilot</text>
+        <text x="40" y="97" class="s-m">Streamable HTTP</text>
+        <rect x="26" y="120" width="198" height="50" rx="8" class="s-violet"/>
+        <text x="40" y="141" class="s-tb">Cursor</text>
+        <text x="40" y="159" class="s-m">Streamable HTTP</text>
+        <rect x="26" y="182" width="198" height="50" rx="8" class="s-violet"/>
+        <text x="40" y="203" class="s-tb">Claude Code · Codex CLI</text>
+        <text x="40" y="221" class="s-m">Gemini CLI · Hermes · others</text>
+        <line x1="26" y1="262" x2="224" y2="262" class="s-life"/>
+        <text x="26" y="282" class="s-m">Same computer only</text>
+        <rect x="26" y="294" width="198" height="56" rx="8" class="s-violet s-dashed"/>
+        <text x="40" y="316" class="s-tb">Claude Desktop</text>
+        <text x="40" y="334" class="s-m">Stdio · starts its own process</text>
+
+        <rect x="26" y="392" width="198" height="56" rx="8" class="s-amber"/>
+        <text x="40" y="414" class="s-tb">Browser (administrator)</text>
+        <text x="40" y="432" class="s-m">login with ADMIN_API_KEY</text>
+
+        <!-- Arrows clients -> server -->
+        <path d="M224,83 C290,83 290,124 346,124" class="s-line-a" marker-end="url(#arr-a)"/>
+        <path d="M224,145 C290,145 290,124 346,124" class="s-line-a" marker-end="url(#arr-a)"/>
+        <path d="M224,207 C290,207 290,124 346,124" class="s-line-a" marker-end="url(#arr-a)"/>
+        <rect x="250" y="40" width="76" height="36" rx="6" class="s-box"/>
+        <text x="288" y="55" text-anchor="middle" class="s-m">Bearer</text>
+        <text x="288" y="69" text-anchor="middle" class="s-m">MCP key</text>
+        <path d="M224,322 C290,322 290,220 346,220" class="s-line" marker-end="url(#arr)"/>
+        <path d="M224,420 L348,420" class="s-line" marker-end="url(#arr)"/>
+
+        <!-- Server -->
+        <text x="338" y="28" class="s-cap s-ca">JMX-QUERY MCP SERVER</text>
+        <rect x="330" y="40" width="330" height="420" rx="14" class="s-accent"/>
+        <text x="350" y="68" class="s-th">Windows service (Node.js)</text>
+        <text x="350" y="86" class="s-m">one process · all transports · all instances</text>
+        <rect x="350" y="104" width="290" height="40" rx="7" class="s-box"/>
+        <text x="364" y="129" class="s-t"><tspan font-weight="600">Streamable HTTP</tspan>  /mcp/stream</text>
+        <rect x="350" y="152" width="290" height="40" rx="7" class="s-box"/>
+        <text x="364" y="177" class="s-t"><tspan font-weight="600">SSE</tspan>  /mcp/sse · /mcp/messages</text>
+        <rect x="350" y="200" width="290" height="40" rx="7" class="s-box s-dashed"/>
+        <text x="364" y="225" class="s-t"><tspan font-weight="600">Stdio</tspan>  only when launched by a client</text>
+
+        <rect x="350" y="256" width="290" height="44" rx="7" class="s-box"/>
+        <text x="364" y="275" class="s-tb">Routing &amp; validation</text>
+        <text x="364" y="292" class="s-m">instance enabled? company allowed? audit entry</text>
+
+        <rect x="350" y="312" width="140" height="56" rx="7" class="s-box"/>
+        <text x="364" y="334" class="s-tb">Instance Store</text>
+        <text x="364" y="352" class="s-m">AES-256-GCM file</text>
+        <rect x="500" y="312" width="140" height="56" rx="7" class="s-box"/>
+        <text x="514" y="334" class="s-tb">Audit logs</text>
+        <text x="514" y="352" class="s-m">daily JSONL files</text>
+
+        <rect x="350" y="390" width="290" height="56" rx="7" class="s-amber"/>
+        <text x="364" y="412" class="s-tb">Admin GUI  /admin</text>
+        <text x="364" y="430" class="s-m">Instances · Tools · Logs · Connect · Docs</text>
+
+        <line x1="495" y1="144" x2="495" y2="152" class="s-line"/>
+        <line x1="495" y1="240" x2="495" y2="254" class="s-line" marker-end="url(#arr)"/>
+        <line x1="420" y1="300" x2="420" y2="310" class="s-line" marker-end="url(#arr)"/>
+        <line x1="570" y1="300" x2="570" y2="310" class="s-line" marker-end="url(#arr)"/>
+
+        <!-- Server -> BC -->
+        <path d="M640,278 C700,278 690,170 744,170" class="s-line-t" marker-end="url(#arr-t)"/>
+        <path d="M640,288 C700,288 690,380 744,380" class="s-line-t s-dashed" marker-end="url(#arr-t)"/>
+        <rect x="664" y="206" width="72" height="54" rx="6" class="s-box"/>
+        <text x="700" y="224" text-anchor="middle" class="s-m">OData V4</text>
+        <text x="700" y="239" text-anchor="middle" class="s-m">per-instance</text>
+        <text x="700" y="253" text-anchor="middle" class="s-m">auth</text>
+
+        <!-- BC -->
+        <text x="748" y="28" class="s-cap s-ct">BUSINESS CENTRAL</text>
+        <rect x="740" y="40" width="230" height="270" rx="12" class="s-teal"/>
+        <text x="756" y="66" class="s-th">Instance A</text>
+        <text x="756" y="84" class="s-m">on-premises or online environment</text>
+        <rect x="756" y="98" width="198" height="44" rx="7" class="s-box"/>
+        <text x="768" y="117" class="s-tb">JMX-QUERY app</text>
+        <text x="768" y="133" class="s-m">+ permission set for the API user</text>
+        <rect x="756" y="150" width="198" height="44" rx="7" class="s-box"/>
+        <text x="768" y="169" class="s-tb">Web services</text>
+        <text x="768" y="185" class="s-m">JMXQ_ApiService · ApiInfoService</text>
+        <rect x="756" y="202" width="198" height="44" rx="7" class="s-box"/>
+        <text x="768" y="221" class="s-tb">Execution contexts</text>
+        <text x="768" y="237" class="s-m">permissions · limits · companies</text>
+        <rect x="756" y="254" width="198" height="44" rx="7" class="s-box"/>
+        <text x="768" y="273" class="s-tb">Companies</text>
+        <text x="768" y="289" class="s-m">technical + execution companies</text>
+
+        <rect x="740" y="330" width="230" height="100" rx="12" class="s-teal s-dashed"/>
+        <text x="756" y="358" class="s-th">Instance B, C, …</text>
+        <text x="756" y="378" class="s-m">own endpoint, authentication</text>
+        <text x="756" y="394" class="s-m">and technical company each</text>
+        <text x="756" y="414" class="s-m">BASIC · NTLM · SSO · OAuth</text>
+      </svg>
+      <figcaption>Clients talk only to the MCP server. The server holds the Business Central credentials and forwards each request to exactly one instance.</figcaption>
+    </figure>
+
+    <div class="grid" style="margin-top:16px">
+      <div class="card violet"><h4>MCP clients</h4><p>Any MCP-capable AI tool. HTTP clients authenticate with the MCP key. Claude Desktop can start a local Stdio process instead.</p></div>
+      <div class="card accent"><h4>MCP server</h4><p>Runs as a Windows service, exposes the MCP tools, validates targets, stores connection data encrypted and writes an audit trail.</p></div>
+      <div class="card teal"><h4>Business Central</h4><p>The JMX-QUERY app parses and executes scripts. Execution contexts define which tables, fields, companies and record counts are allowed.</p></div>
+    </div>
+  </section>
+
+  <!-- 2 JMX-QUERY -->
+  <section id="jmxquery">
+    <h2><span class="num">2</span>JMX-QUERY and what an AI agent can do with it</h2>
+    <p class="sub">
+      JMX-QUERY is a compact, pipeline-style query language for Business Central. A script is plain text, runs
+      inside Business Central through the JMX-QUERY app and returns JSON. It reads data with filters, lookups,
+      grouping and aggregates, and it can insert, modify and delete records or run a codeunit, always within the
+      rights of the selected execution context. This makes it a good fit for AI agents: one tool,
+      <code>jmxq_executeScript</code>, covers almost every data task, and Business Central still decides what is allowed.
+    </p>
+
+    <figure class="diagram">
+      <svg viewBox="0 0 980 340" role="img" aria-labelledby="jq-title jq-desc">
+        <title id="jq-title">Structure of JMX-QUERY scripts</title>
+        <desc id="jq-desc">A read pipeline starts with FROM and continues with optional steps FLOWFILTER, FILTER, LOOKUP, GROUP BY, HAVING, SELECT, DISTINCT, ORDER BY and LIMIT, producing a JSON result. Change pipelines start with INSERT, MODIFY, DELETE or RUN CODEUNIT. Every pipeline can start with PARAMETERS, and several scripts in one call run as one transaction.</desc>
+
+        <text x="10" y="26" class="s-cap s-ca">READ PIPELINE</text>
+        <text x="122" y="26" class="s-m">FROM is required, the other steps are optional; steps are joined with  |</text>
+
+        <line x1="20" y1="71" x2="876" y2="71" class="s-line" marker-end="url(#arr)"/>
+
+        <rect x="10" y="42" width="78" height="58" rx="8" class="s-accent"/>
+        <text x="49" y="66" text-anchor="middle" class="s-kw">FROM</text>
+        <text x="49" y="85" text-anchor="middle" class="s-m">table or #ID</text>
+
+        <rect x="96" y="42" width="78" height="58" rx="8" class="s-box"/>
+        <text x="135" y="66" text-anchor="middle" class="s-kw">FLOWFILTER</text>
+        <text x="135" y="85" text-anchor="middle" class="s-m">flow filters</text>
+
+        <rect x="182" y="42" width="78" height="58" rx="8" class="s-box"/>
+        <text x="221" y="66" text-anchor="middle" class="s-kw">FILTER</text>
+        <text x="221" y="85" text-anchor="middle" class="s-m">row filter</text>
+
+        <rect x="268" y="42" width="78" height="58" rx="8" class="s-box"/>
+        <text x="307" y="66" text-anchor="middle" class="s-kw">LOOKUP</text>
+        <text x="307" y="85" text-anchor="middle" class="s-m">join by key</text>
+
+        <rect x="354" y="42" width="78" height="58" rx="8" class="s-box"/>
+        <text x="393" y="66" text-anchor="middle" class="s-kw">GROUP BY</text>
+        <text x="393" y="85" text-anchor="middle" class="s-m">grouping</text>
+
+        <rect x="440" y="42" width="78" height="58" rx="8" class="s-box"/>
+        <text x="479" y="66" text-anchor="middle" class="s-kw">HAVING</text>
+        <text x="479" y="85" text-anchor="middle" class="s-m">group filter</text>
+
+        <rect x="526" y="42" width="78" height="58" rx="8" class="s-box"/>
+        <text x="565" y="66" text-anchor="middle" class="s-kw">SELECT</text>
+        <text x="565" y="85" text-anchor="middle" class="s-m">columns, sums</text>
+
+        <rect x="612" y="42" width="78" height="58" rx="8" class="s-box"/>
+        <text x="651" y="66" text-anchor="middle" class="s-kw">DISTINCT</text>
+        <text x="651" y="85" text-anchor="middle" class="s-m">deduplicate</text>
+
+        <rect x="698" y="42" width="78" height="58" rx="8" class="s-box"/>
+        <text x="737" y="66" text-anchor="middle" class="s-kw">ORDER BY</text>
+        <text x="737" y="85" text-anchor="middle" class="s-m">sort</text>
+
+        <rect x="784" y="42" width="78" height="58" rx="8" class="s-box"/>
+        <text x="823" y="66" text-anchor="middle" class="s-kw">LIMIT</text>
+        <text x="823" y="85" text-anchor="middle" class="s-m">+ OFFSET</text>
+
+        <rect x="882" y="42" width="88" height="58" rx="8" class="s-teal"/>
+        <text x="926" y="66" text-anchor="middle" class="s-tb">JSON</text>
+        <text x="926" y="85" text-anchor="middle" class="s-m">result rows</text>
+
+        <text x="10" y="136" class="s-cap" style="fill:var(--amber)">CHANGE PIPELINES</text>
+        <text x="146" y="136" class="s-m">need write or execute rights in the execution context; each is checked against its record limit</text>
+
+        <rect x="10" y="148" width="232" height="104" rx="10" class="s-amber"/>
+        <text x="24" y="170" class="s-code" font-weight="700">INSERT &lt;table&gt;</text>
+        <text x="24" y="190" class="s-code">| RECORD(field = value, …)</text>
+        <text x="24" y="208" class="s-code">| RECORD(…)</text>
+        <text x="24" y="238" class="s-m">limit: Max Insert Records</text>
+
+        <rect x="252" y="148" width="232" height="104" rx="10" class="s-amber"/>
+        <text x="266" y="170" class="s-code" font-weight="700">MODIFY &lt;table&gt; AS t</text>
+        <text x="266" y="190" class="s-code">| FILTER …   (required)</text>
+        <text x="266" y="208" class="s-code">| SET (field = value, …)</text>
+        <text x="266" y="238" class="s-m">limit: Max Modify Records</text>
+
+        <rect x="494" y="148" width="232" height="104" rx="10" class="s-amber"/>
+        <text x="508" y="170" class="s-code" font-weight="700">DELETE &lt;table&gt; AS t</text>
+        <text x="508" y="190" class="s-code">| FILTER …   (required)</text>
+        <text x="508" y="208" class="s-code">| FILTER …   (AND)</text>
+        <text x="508" y="238" class="s-m">limit: Max Delete Records</text>
+
+        <rect x="736" y="148" width="234" height="104" rx="10" class="s-amber"/>
+        <text x="750" y="170" class="s-code" font-weight="700">RUN CODEUNIT &lt;codeunit&gt;</text>
+        <text x="750" y="190" class="s-code">| USE TABLE &lt;table&gt;</text>
+        <text x="764" y="208" class="s-code">GET (primary key values)</text>
+        <text x="750" y="238" class="s-m">needs Execute permission</text>
+
+        <rect x="10" y="268" width="960" height="62" rx="8" class="s-box"/>
+        <text x="24" y="292" class="s-t"><tspan class="s-code" font-weight="700">PARAMETERS a = 'x', n = 5 | …</tspan>  optional prefix for every pipeline; values are used as <tspan class="s-code">:a</tspan>, <tspan class="s-code">:n</tspan></text>
+        <text x="24" y="316" class="s-t">Several scripts in one call run as <tspan font-weight="600">one transaction</tspan>: all succeed, or everything is rolled back. RUN CODEUNIT runs only on its own.</text>
+      </svg>
+      <figcaption>Field references always use an alias, for example <code>c."No."</code>. Tables can be named or addressed by ID (<code>#18</code>).</figcaption>
+    </figure>
+
+    <h3>Language at a glance</h3>
+    <div class="grid five">
+      <div class="card"><h4>Filters</h4><p><code>= &lt;&gt; &lt; &lt;= &gt; &gt;=</code>, <code>LIKE</code> with <code>*</code> wildcard (case-insensitive), <code>IN</code>, <code>NOT IN</code>, <code>BETWEEN</code>, combined with <code>AND</code> / <code>OR</code> and parentheses.</p></div>
+      <div class="card"><h4>Aggregates</h4><p><code>COUNT</code>, <code>SUM</code>, <code>AVG</code>, <code>MIN</code>, <code>MAX</code> in <code>SELECT</code>, <code>HAVING</code> and <code>ORDER BY</code>, together with <code>GROUP BY</code>.</p></div>
+      <div class="card"><h4>Business Central literals</h4><p>Dates <code>20250131D</code>, times <code>0830T</code>, date-times <code>202501311230DT</code>, GUIDs, and decimals with a dot (<code>1856.40</code>).</p></div>
+      <div class="card"><h4>Fields and captions</h4><p><code>alias."Field"</code> or <code>alias.FIELD(#id)</code>. Wildcards <code>alias.*</code> (field names) and <code>alias.$</code> (captions) project all fields.</p></div>
+      <div class="card"><h4>Validation</h4><p>Changes run with validation by default. <code>WITHOUT VALIDATION</code> switches it off; <code>VALIDATE(…)</code> and <code>NOVALIDATE(…)</code> control single fields.</p></div>
+    </div>
+
+    <h3>Examples</h3>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,440px),1fr))">
+      <div class="card">
+        <h4>Aggregate with parameters</h4>
+<pre><code>PARAMETERS fromDate = 20250101D, toDate = 20251231D
+| FROM "G/L Entry" AS gle
+| FILTER gle."Posting Date" BETWEEN :fromDate AND :toDate
+| GROUP BY gle."G/L Account No."
+| SELECT gle."G/L Account No." AS Account,
+         SUM(gle.Amount) AS Amount
+| HAVING SUM(gle.Amount) &lt;&gt; 0
+| ORDER BY Amount DESC
+| LIMIT 10</code></pre>
+      </div>
+      <div class="card">
+        <h4>Enrich with a lookup</h4>
+<pre><code>FROM "Sales Header" AS sh
+| LOOKUP Customer AS c
+    USING (sh."Sell-to Customer No.") MODE LEFT
+| SELECT sh."No." AS DocNo,
+         c."No." AS CustNo,
+         c.Name AS CustomerName
+| LIMIT 50</code></pre>
+      </div>
+      <div class="card">
+        <h4>Preview, then modify</h4>
+<pre><code>-- 1. preview the affected records
+FROM Customer AS c
+| FILTER c."Salesperson Code" = 'OLD'
+| SELECT COUNT(*) AS Affected
+
+-- 2. change them (after confirmation)
+MODIFY Customer AS c
+| FILTER c."Salesperson Code" = 'OLD'
+| SET ("Salesperson Code" = 'NEW')</code></pre>
+      </div>
+      <div class="card">
+        <h4>Insert with validation control</h4>
+<pre><code>PARAMETERS no = 'NEW-001', name = 'New Customer'
+| INSERT Customer
+| RECORD(
+    "No." = :no,
+    "Name" = VALIDATE(:name),
+    "Blocked" = NOVALIDATE(FALSE)
+  )</code></pre>
+      </div>
+    </div>
+
+    <h3>What an AI agent can do</h3>
+    <p class="sub">The agent turns a request in natural language into one or more scripts, runs them in the allowed company and explains the result. Typical tasks:</p>
+    <div class="grid">
+      <div class="card accent"><h4>Answer business questions</h4><p>Reads, filters and ranks data on demand.</p><p class="prompt">“Which ten customers have the highest balance?”</p></div>
+      <div class="card accent"><h4>Analyse and compare</h4><p>Groups and sums, several scripts per question if needed.</p><p class="prompt">“Sales per item category this quarter compared to last quarter.”</p></div>
+      <div class="card accent"><h4>Explore the data model</h4><p>Finds tables and fields, including extension tables.</p><p class="prompt">“Where are vendor prices stored, and what is the primary key?”</p></div>
+      <div class="card teal"><h4>Check data quality</h4><p>Looks for gaps, duplicates and inconsistent values.</p><p class="prompt">“List customers without e-mail address or payment terms.”</p></div>
+      <div class="card amber"><h4>Maintain data in bulk</h4><p>Previews the affected records, asks for confirmation, then changes them within the limits.</p><p class="prompt">“Move all customers of salesperson OLD to NEW.”</p></div>
+      <div class="card amber"><h4>Create records</h4><p>Inserts records from a list or a document, with Business Central validation.</p><p class="prompt">“Create these five contacts from the attached list.”</p></div>
+      <div class="card amber"><h4>Run business logic</h4><p>Calls an allowed codeunit on one record, for example to release a document.</p><p class="prompt">“Release sales order &lt;no.&gt;.”</p></div>
+      <div class="card violet"><h4>Write scripts for people</h4><p>Drafts and explains scripts that users can save and reuse in the JMX-QUERY Script Editor.</p><p class="prompt">“Write a script for the monthly stock check.”</p></div>
+    </div>
+
+    <h3>How a well-behaved agent works</h3>
+    <div class="grid five">
+      <div class="card"><h4>Learns the installed version</h4><p>Loads grammar and examples with <code>jmxq_getGrammar</code> and <code>jmxq_getExamples</code> instead of guessing syntax.</p></div>
+      <div class="card"><h4>Reads before it writes</h4><p>Runs the same filter as a read query first and shows what would change.</p></div>
+      <div class="card"><h4>Asks before changing data</h4><p>Names instance, company and effect, and waits for confirmation before <code>INSERT</code>, <code>MODIFY</code>, <code>DELETE</code> or <code>RUN CODEUNIT</code>.</p></div>
+      <div class="card"><h4>Keeps results small</h4><p>Uses <code>SELECT</code>, <code>LIMIT</code> and aggregates instead of loading whole tables.</p></div>
+      <div class="card"><h4>Respects the rules</h4><p>Rejected tables, fields, companies or limits are reported to the user, not worked around.</p></div>
+    </div>
+    <p class="sub" style="margin-top:14px">Context instructions maintained in the execution context reach the agent through <code>jmxq_describeExecutionContext</code>. Use them for scenario-specific rules, such as which tables to prefer or which number series to use.</p>
+  </section>
+
+  <!-- 3 Concepts -->
+  <section id="concepts">
+    <h2><span class="num">3</span>Key concepts</h2>
+    <p class="sub">Four terms decide where a request goes and what it may do. Two are configured on the MCP server, two in Business Central.</p>
+
+    <figure class="diagram">
+      <svg viewBox="0 0 980 300" role="img" aria-labelledby="con-title con-desc">
+        <title id="con-title">Instance, technical company, execution context and execution company</title>
+        <desc id="con-desc">An instance owns one technical company used for metadata calls. Through it, the server reads execution contexts from Business Central. Each execution context allows one or more execution companies in which scripts run.</desc>
+
+        <rect x="10" y="10" width="470" height="30" rx="6" class="s-band"/>
+        <text x="245" y="30" text-anchor="middle" class="s-cap s-ca">CONFIGURED IN THE ADMIN GUI (MCP SERVER)</text>
+        <rect x="500" y="10" width="470" height="30" rx="6" class="s-band"/>
+        <text x="735" y="30" text-anchor="middle" class="s-cap s-ct">CONFIGURED IN BUSINESS CENTRAL</text>
+
+        <rect x="10" y="64" width="200" height="150" rx="10" class="s-accent"/>
+        <text x="26" y="92" class="s-th">Instance</text>
+        <text x="26" y="116" class="s-t">Connection profile</text>
+        <text x="26" y="138" class="s-m">• endpoint / environment</text>
+        <text x="26" y="156" class="s-m">• authentication + secrets</text>
+        <text x="26" y="174" class="s-m">• enabled / disabled</text>
+        <text x="26" y="200" class="s-m">tool parameter: bcInstance</text>
+
+        <rect x="270" y="64" width="210" height="150" rx="10" class="s-accent"/>
+        <text x="286" y="92" class="s-th">Technical company</text>
+        <text x="286" y="116" class="s-t">Exactly one per instance</text>
+        <text x="286" y="138" class="s-m">• used for metadata calls:</text>
+        <text x="286" y="156" class="s-m">  contexts, tables, grammar,</text>
+        <text x="286" y="174" class="s-m">  examples</text>
+        <text x="286" y="200" class="s-m">never sent by the client</text>
+
+        <rect x="540" y="64" width="200" height="150" rx="10" class="s-teal"/>
+        <text x="556" y="92" class="s-th">Execution context</text>
+        <text x="556" y="116" class="s-t">Rule set, identified by code</text>
+        <text x="556" y="138" class="s-m">• object &amp; field permissions</text>
+        <text x="556" y="156" class="s-m">• security filters, max records</text>
+        <text x="556" y="174" class="s-m">• instructions for the agent</text>
+        <text x="556" y="200" class="s-m">parameter: executionContextCode</text>
+
+        <rect x="770" y="64" width="200" height="150" rx="10" class="s-teal"/>
+        <text x="786" y="92" class="s-th">Execution company</text>
+        <text x="786" y="116" class="s-t">Where a script runs</text>
+        <text x="786" y="138" class="s-m">• must be allowed by the</text>
+        <text x="786" y="156" class="s-m">  selected context</text>
+        <text x="786" y="174" class="s-m">• checked before execution</text>
+        <text x="786" y="200" class="s-m">parameter: executionCompany</text>
+
+        <line x1="210" y1="139" x2="266" y2="139" class="s-line" marker-end="url(#arr)"/>
+        <text x="238" y="130" text-anchor="middle" class="s-m">owns 1</text>
+        <line x1="480" y1="139" x2="536" y2="139" class="s-line" marker-end="url(#arr)"/>
+        <text x="508" y="130" text-anchor="middle" class="s-m">reads</text>
+        <line x1="740" y1="139" x2="766" y2="139" class="s-line" marker-end="url(#arr)"/>
+        <text x="755" y="130" text-anchor="middle" class="s-m">1..n</text>
+
+        <rect x="10" y="236" width="960" height="56" rx="8" class="s-box"/>
+        <text x="26" y="259" class="s-t"><tspan font-weight="600">Rule of thumb:</tspan> the agent always names the instance explicitly; metadata comes from the technical company;</text>
+        <text x="26" y="279" class="s-t">data is read or changed only in an execution company that the selected context allows.</text>
+      </svg>
+    </figure>
+
+    <div class="note">
+      <p><strong>Terminology:</strong> <code>tenantId</code> in an OAuth instance is the Entra ID directory ID. It is not a Business Central company. Do not add a company to the instance base URL either; companies are selected separately.</p>
+    </div>
+  </section>
+
+  <!-- 3 Setup -->
+  <section id="setup">
+    <h2><span class="num">4</span>Setup flow</h2>
+    <p class="sub">Setup touches three places: Business Central, the server host and the AI client. Business Central and the server can be prepared in parallel.</p>
+
+    <figure class="diagram">
+      <svg viewBox="0 0 980 330" role="img" aria-labelledby="setup-title setup-desc">
+        <title id="setup-title">Setup swimlanes</title>
+        <desc id="setup-desc">Steps 1 to 3 in Business Central, steps 4 to 6 on the server host and steps 7 and 8 in the AI client, connected by arrows showing dependencies.</desc>
+
+        <rect x="0" y="10" width="980" height="96" rx="10" class="s-band"/>
+        <rect x="0" y="116" width="980" height="96" rx="10" class="s-band"/>
+        <rect x="0" y="222" width="980" height="96" rx="10" class="s-band"/>
+        <text x="16" y="56" class="s-tb s-ct">Business</text>
+        <text x="16" y="74" class="s-tb s-ct">Central</text>
+        <text x="16" y="162" class="s-tb s-ca">MCP server</text>
+        <text x="16" y="180" class="s-tb s-ca">host</text>
+        <text x="16" y="268" class="s-tb s-cv">AI client</text>
+
+        <!-- BC lane -->
+        <rect x="140" y="28" width="160" height="60" rx="8" class="s-teal"/>
+        <circle cx="158" cy="46" r="10" class="s-num"/><text x="158" y="50" text-anchor="middle" class="s-numt">1</text>
+        <text x="174" y="51" class="s-tb">Install app</text>
+        <text x="152" y="74" class="s-m">assign permission set</text>
+
+        <rect x="320" y="28" width="160" height="60" rx="8" class="s-teal"/>
+        <circle cx="338" cy="46" r="10" class="s-num"/><text x="338" y="50" text-anchor="middle" class="s-numt">2</text>
+        <text x="354" y="51" class="s-tb">Register web</text>
+        <text x="332" y="74" class="s-m">services (Script Editor)</text>
+
+        <rect x="500" y="28" width="160" height="60" rx="8" class="s-teal"/>
+        <circle cx="518" cy="46" r="10" class="s-num"/><text x="518" y="50" text-anchor="middle" class="s-numt">3</text>
+        <text x="534" y="51" class="s-tb">Define contexts</text>
+        <text x="512" y="74" class="s-m">rights, limits, companies</text>
+
+        <!-- Server lane -->
+        <rect x="140" y="134" width="160" height="60" rx="8" class="s-accent"/>
+        <circle cx="158" cy="152" r="10" class="s-num"/><text x="158" y="156" text-anchor="middle" class="s-numt">4</text>
+        <text x="174" y="157" class="s-tb">Bootstrap</text>
+        <text x="152" y="180" class="s-m">npm run bootstrap</text>
+
+        <rect x="500" y="134" width="160" height="60" rx="8" class="s-accent"/>
+        <circle cx="518" cy="152" r="10" class="s-num"/><text x="518" y="156" text-anchor="middle" class="s-numt">5</text>
+        <text x="534" y="157" class="s-tb">Create instance</text>
+        <text x="512" y="180" class="s-m">test · load companies</text>
+
+        <rect x="680" y="134" width="160" height="60" rx="8" class="s-accent"/>
+        <circle cx="698" cy="152" r="10" class="s-num"/><text x="698" y="156" text-anchor="middle" class="s-numt">6</text>
+        <text x="714" y="157" class="s-tb">Verify</text>
+        <text x="692" y="180" class="s-m">Tools view · Logs</text>
+
+        <!-- Client lane -->
+        <rect x="680" y="240" width="160" height="60" rx="8" class="s-violet"/>
+        <circle cx="698" cy="258" r="10" class="s-num"/><text x="698" y="262" text-anchor="middle" class="s-numt">7</text>
+        <text x="714" y="263" class="s-tb">Add server</text>
+        <text x="692" y="286" class="s-m">config from Connect</text>
+
+        <rect x="860" y="240" width="110" height="60" rx="8" class="s-violet"/>
+        <circle cx="878" cy="258" r="10" class="s-num"/><text x="878" y="262" text-anchor="middle" class="s-numt">8</text>
+        <text x="894" y="263" class="s-tb">Use</text>
+        <text x="872" y="286" class="s-m">ask the agent</text>
+
+        <!-- Arrows -->
+        <line x1="300" y1="58" x2="316" y2="58" class="s-line" marker-end="url(#arr)"/>
+        <line x1="480" y1="58" x2="496" y2="58" class="s-line" marker-end="url(#arr)"/>
+        <line x1="580" y1="88" x2="580" y2="130" class="s-line" marker-end="url(#arr)"/>
+        <line x1="300" y1="164" x2="496" y2="164" class="s-line" marker-end="url(#arr)"/>
+        <line x1="660" y1="164" x2="676" y2="164" class="s-line" marker-end="url(#arr)"/>
+        <line x1="760" y1="194" x2="760" y2="236" class="s-line" marker-end="url(#arr)"/>
+        <line x1="840" y1="270" x2="856" y2="270" class="s-line" marker-end="url(#arr)"/>
+      </svg>
+    </figure>
+
+    <h3>Step by step</h3>
+    <ol class="steps">
+      <li>
+        <strong>Install the JMX-QUERY app <span class="where bc">Business Central</span></strong>
+        Install the JMX-QUERY Business Central app in every instance that the server will connect to. Assign the
+        <em>JMX-QUERY Full Access</em> permission set (plus the business permissions the scenario needs) to the user,
+        service account or Entra application that the MCP server will authenticate as.
+      </li>
+      <li>
+        <strong>Register the web services <span class="where bc">Business Central</span></strong>
+        Open the JMX-QUERY Script Editor and run <em>Register Web Services</em>. This publishes
+        <code>JMXQ_ApiService</code> and <code>JMXQ_ApiInfoService</code> as OData V4 services, which the MCP server calls.
+      </li>
+      <li>
+        <strong>Define execution contexts <span class="where bc">Business Central</span></strong>
+        On the page <em>JMX-QUERY Execution Contexts</em>, create one context per use case, for example a read-only
+        sales analysis or a tightly limited data maintenance task:
+        <ul>
+          <li>Permissions per table or codeunit: Read, Insert, Modify, Delete, Execute, optionally with allowed fields and security filters.</li>
+          <li>Record limits: Max Read, Insert, Modify and Delete Records.</li>
+          <li>Restrict Companies: the list of companies in which scripts may run.</li>
+          <li>Context Instructions: plain-text guidance that the agent receives when it describes the context.</li>
+        </ul>
+      </li>
+      <li>
+        <strong>Install and bootstrap the server <span class="where srv">Server host</span></strong>
+        On a Windows machine with current Node.js LTS, open an elevated PowerShell in the repository and run
+        <code>npm run bootstrap</code>. It asks for ports, creates or keeps the three keys, builds server and Admin GUI,
+        and optionally installs the Windows service <em>JMX-QUERY MCP Server</em>.
+      </li>
+      <li>
+        <strong>Create an instance in the Admin GUI <span class="where srv">Server host</span></strong>
+        Open <code>http://&lt;server&gt;:&lt;port&gt;/admin</code> and log in with <code>ADMIN_API_KEY</code>.
+        Choose <em>New instance</em>, enter a stable name and the connection data, then use
+        <em>Test connection</em> and <em>Load companies</em> and pick the technical company.
+      </li>
+      <li>
+        <strong>Verify with the Tool Tester <span class="where srv">Server host</span></strong>
+        In the <em>Tools</em> view, select the instance, list the execution contexts and run a small read-only script.
+        The <em>Logs</em> view shows the request with duration and status.
+      </li>
+      <li>
+        <strong>Connect the AI client <span class="where cli">AI client</span></strong>
+        On the <em>Connect</em> page, choose the client and the access location (this computer or local network),
+        copy the generated configuration and provide the <code>JMXQ_MCPAPI_KEY</code>.
+      </li>
+      <li>
+        <strong>Ask the agent <span class="where cli">AI client</span></strong>
+        Ask a business question. The agent follows the workflow in <a href="#workflow">section 7</a> and returns the result.
+      </li>
+    </ol>
+  </section>
+
+  <!-- 4 Configuration -->
+  <section id="configuration">
+    <h2><span class="num">5</span>Configuration reference</h2>
+    <p class="sub">Global service settings live in <code>.env</code>. Everything about Business Central (endpoints, credentials, companies) lives in the encrypted Instance Store and is maintained only through the Admin GUI.</p>
+
+    <h3>Three keys, three purposes</h3>
+    <div class="grid">
+      <div class="card accent"><h4><code>JMXQ_MCPAPI_KEY</code></h4><p>Bearer key for MCP clients over HTTP. Give it to client users. Shown on the Connect page.</p></div>
+      <div class="card amber"><h4><code>ADMIN_API_KEY</code></h4><p>Login for the Admin GUI and Admin API. Keep it with administrators only.</p></div>
+      <div class="card teal"><h4><code>INSTANCE_MASTER_KEY</code></h4><p>Encrypts the Instance Store (min. 32 characters). Back it up; without it the store cannot be read.</p></div>
+    </div>
+
+    <h3>Important <code>.env</code> settings</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Variable</th><th>Purpose</th><th>Default</th></tr></thead>
+        <tbody>
+          <tr><td><code>MCP_HOST</code></td><td>Listen address. <code>127.0.0.1</code> for same-computer clients, LAN address or <code>0.0.0.0</code> for trusted network clients.</td><td><code>127.0.0.1</code></td></tr>
+          <tr><td><code>MCP_PORT</code></td><td>Main port for Admin GUI, SSE and Streamable HTTP.</td><td><code>5000</code></td></tr>
+          <tr><td><code>MCP_STREAMABLE_PORT</code></td><td>Optional separate port for Streamable HTTP.</td><td>unset</td></tr>
+          <tr><td><code>MCP_CORS_ORIGINS</code></td><td>Browser origins allowed to call the server.</td><td>local origins</td></tr>
+          <tr><td><code>ADMIN_API_ENABLED</code></td><td>Enables the Admin GUI and Admin API.</td><td><code>false</code></td></tr>
+          <tr><td><code>ADMIN_SESSION_IDLE_MINUTES</code> / <code>_MAX_HOURS</code></td><td>Admin session timeouts.</td><td><code>60</code> / <code>12</code></td></tr>
+          <tr><td><code>MCP_STDIO</code></td><td><code>auto</code>, <code>on</code> or <code>off</code>. The Windows service always uses <code>off</code>.</td><td><code>auto</code></td></tr>
+          <tr><td><code>INSTANCE_STORE_PATH</code></td><td>Location of the encrypted store.</td><td><code>./data/instances.enc</code></td></tr>
+          <tr><td><code>LOG_DIR</code> / <code>LOG_RETENTION_DAYS</code></td><td>Audit log directory and number of daily files kept.</td><td><code>./logs</code> / <code>30</code></td></tr>
+          <tr><td><code>LOG_SCRIPT_MAX_LENGTH</code></td><td>Maximum stored script length per log entry.</td><td><code>4000</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Instance authentication</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Type</th><th>Typical use</th><th>Required fields</th><th>Endpoint pattern</th></tr></thead>
+        <tbody>
+          <tr><td><code>BASIC</code></td><td>On-premises, web service access key</td><td>Base URL, user name, password</td><td><code>https://&lt;bc-host&gt;:&lt;port&gt;/&lt;server-instance&gt;/ODataV4/</code></td></tr>
+          <tr><td><code>NTLM</code></td><td>On-premises, Windows user</td><td>Base URL, user name, password</td><td><code>http(s)://&lt;bc-host&gt;:&lt;port&gt;/&lt;server-instance&gt;/ODataV4/</code></td></tr>
+          <tr><td><code>SSO</code></td><td>On-premises, service account of the Windows service</td><td>Base URL</td><td><code>https://&lt;bc-host&gt;:&lt;port&gt;/&lt;server-instance&gt;/ODataV4/</code></td></tr>
+          <tr><td><code>OAUTH</code></td><td>Business Central online</td><td>Tenant ID, client ID, client secret, environment</td><td>derived: <code>https://api.businesscentral.dynamics.com/v2.0/&lt;tenantId&gt;/&lt;environment&gt;/ODataV4/</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      <p><strong>SSO:</strong> the Windows account that runs the service must be a Business Central user. <code>LocalSystem</code> usually cannot authenticate against a remote server; set a domain service account under <em>services.msc → Properties → Log On</em>.</p>
+    </div>
+  </section>
+
+  <!-- 5 Clients -->
+  <section id="clients">
+    <h2><span class="num">6</span>Connecting AI clients</h2>
+    <p class="sub">
+      The <em>Connect</em> page in the Admin GUI generates the exact configuration for your server. The examples below show the shape with placeholders.
+      From another computer, never use <code>127.0.0.1</code> or <code>localhost</code>: use the server's DNS name or LAN address.
+    </p>
+
+    <div class="tabs" role="tablist" aria-label="Client configuration examples">
+      <button role="tab" id="tab-vscode" aria-controls="panel-vscode" aria-selected="true">VS Code / Copilot</button>
+      <button role="tab" id="tab-cursor" aria-controls="panel-cursor" aria-selected="false" tabindex="-1">Cursor</button>
+      <button role="tab" id="tab-claude" aria-controls="panel-claude" aria-selected="false" tabindex="-1">Claude Code</button>
+      <button role="tab" id="tab-desktop" aria-controls="panel-desktop" aria-selected="false" tabindex="-1">Claude Desktop (Stdio)</button>
+    </div>
+
+    <div class="tabpanel" role="tabpanel" id="panel-vscode" aria-labelledby="tab-vscode">
+<pre><code>{
+  "inputs": [
+    { "id": "jmxq-mcp-api-key", "type": "promptString",
+      "description": "JMX-QUERY MCP API key", "password": true }
+  ],
+  "servers": {
+    "jmxq-mcp-server": {
+      "type": "http",
+      "url": "http://&lt;mcp-host&gt;:&lt;port&gt;/mcp/stream",
+      "headers": { "Authorization": "Bearer ${input:jmxq-mcp-api-key}" }
+    }
+  }
+}</code></pre>
+      <p class="sub">VS Code asks for the key once and stores it securely; the key is not written into the file.</p>
+    </div>
+
+    <div class="tabpanel" role="tabpanel" id="panel-cursor" aria-labelledby="tab-cursor" hidden>
+<pre><code>{
+  "mcpServers": {
+    "jmxq-mcp-server": {
+      "url": "http://&lt;mcp-host&gt;:&lt;port&gt;/mcp/stream",
+      "headers": { "Authorization": "Bearer &lt;JMXQ_MCPAPI_KEY&gt;" }
+    }
+  }
+}</code></pre>
+    </div>
+
+    <div class="tabpanel" role="tabpanel" id="panel-claude" aria-labelledby="tab-claude" hidden>
+<pre><code>claude mcp add --transport http jmxq-mcp-server http://&lt;mcp-host&gt;:&lt;port&gt;/mcp/stream \
+  --header "Authorization: Bearer &lt;JMXQ_MCPAPI_KEY&gt;"</code></pre>
+      <p class="sub">Codex CLI, Gemini CLI and Hermes Agent use the same endpoint; the Connect page generates their config files.</p>
+    </div>
+
+    <div class="tabpanel" role="tabpanel" id="panel-desktop" aria-labelledby="tab-desktop" hidden>
+<pre><code>{
+  "mcpServers": {
+    "jmxq-mcp-server": {
+      "command": "C:\\Program Files\\nodejs\\node.exe",
+      "args": ["build/index.js"],
+      "cwd": "C:\\path\\to\\jmxquery-mcp-server",
+      "env": { "JMXQ_STDIO_ONLY": "true" }
+    }
+  }
+}</code></pre>
+      <p class="sub">Starts a separate Stdio-only process on the server computer. It uses no HTTP listener and no MCP key, so it does not conflict with the running service.</p>
+    </div>
+
+    <h3>Same computer or local network</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th></th><th>Same computer</th><th>Trusted local network</th></tr></thead>
+        <tbody>
+          <tr><td><code>MCP_HOST</code></td><td><code>127.0.0.1</code></td><td>LAN address of the server or <code>0.0.0.0</code></td></tr>
+          <tr><td>Client URL</td><td><code>http://127.0.0.1:&lt;port&gt;/mcp/stream</code></td><td><code>http://&lt;server-name&gt;:&lt;port&gt;/mcp/stream</code></td></tr>
+          <tr><td>Firewall</td><td>no inbound rule needed</td><td>inbound rule for the MCP port, Private profile, trusted subnet only</td></tr>
+          <tr><td>Beyond the LAN</td><td colspan="2">Not supported directly. Put a reverse proxy with TLS in front, never expose the service to the internet.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 6 Workflow -->
+  <section id="workflow">
+    <h2><span class="num">7</span>Agent workflow</h2>
+    <p class="sub">
+      When a client connects, the server sends workflow instructions. Every Business Central tool call names its target explicitly:
+      the agent does not keep an "active" instance or company between calls, which prevents requests from landing in the wrong system.
+    </p>
+
+    <figure class="diagram">
+      <svg viewBox="0 0 980 800" role="img" aria-labelledby="wf-title wf-desc">
+        <title id="wf-title">Sequence of an agent request</title>
+        <desc id="wf-desc">The user asks a question. The agent lists instances, lists and describes execution contexts, searches tables and describes fields, optionally loads grammar and examples, then executes a script in an allowed execution company. The server validates and logs, Business Central enforces the context rules and returns the result.</desc>
+
+        <!-- Lifeline heads -->
+        <rect x="40" y="10" width="140" height="44" rx="8" class="s-amber"/>
+        <text x="110" y="37" text-anchor="middle" class="s-tb">User</text>
+        <rect x="260" y="10" width="160" height="44" rx="8" class="s-violet"/>
+        <text x="340" y="37" text-anchor="middle" class="s-tb">AI agent (client)</text>
+        <rect x="520" y="10" width="160" height="44" rx="8" class="s-accent"/>
+        <text x="600" y="37" text-anchor="middle" class="s-tb">MCP server</text>
+        <rect x="780" y="10" width="160" height="44" rx="8" class="s-teal"/>
+        <text x="860" y="37" text-anchor="middle" class="s-tb">Business Central</text>
+
+        <line x1="110" y1="54" x2="110" y2="790" class="s-life"/>
+        <line x1="340" y1="54" x2="340" y2="790" class="s-life"/>
+        <line x1="600" y1="54" x2="600" y2="790" class="s-life"/>
+        <line x1="860" y1="54" x2="860" y2="790" class="s-life"/>
+
+        <!-- Phase bands -->
+        <rect x="0" y="68" width="980" height="96" rx="6" class="s-band" opacity="0.6"/>
+        <text x="8" y="84" class="s-cap">CONNECT</text>
+        <rect x="0" y="172" width="980" height="196" rx="6" class="s-band" opacity="0.6"/>
+        <text x="8" y="188" class="s-cap">CHOOSE TARGET</text>
+        <rect x="0" y="376" width="980" height="156" rx="6" class="s-band" opacity="0.6"/>
+        <text x="8" y="392" class="s-cap">EXPLORE</text>
+        <rect x="0" y="540" width="980" height="244" rx="6" class="s-band" opacity="0.6"/>
+        <text x="8" y="556" class="s-cap">EXECUTE</text>
+
+        <!-- 1 -->
+        <line x1="110" y1="102" x2="336" y2="102" class="s-line" marker-end="url(#arr)"/>
+        <text x="122" y="96" class="s-t">question in natural language</text>
+        <!-- 2 -->
+        <line x1="340" y1="124" x2="596" y2="124" class="s-line-a" marker-end="url(#arr-a)"/>
+        <text x="352" y="118" class="s-t">initialize (MCP key)</text>
+        <line x1="600" y1="150" x2="344" y2="150" class="s-ret" marker-end="url(#arr)"/>
+        <text x="588" y="144" text-anchor="end" class="s-m">tool list + workflow instructions</text>
+
+        <!-- 3 listInstances -->
+        <line x1="340" y1="206" x2="596" y2="206" class="s-line-a" marker-end="url(#arr-a)"/>
+        <text x="352" y="200" class="s-t">jmxq_listInstances</text>
+        <line x1="600" y1="230" x2="344" y2="230" class="s-ret" marker-end="url(#arr)"/>
+        <text x="588" y="224" text-anchor="end" class="s-m">enabledInstances, selectionRequired</text>
+        <line x1="340" y1="254" x2="114" y2="254" class="s-ret" marker-end="url(#arr)"/>
+        <text x="328" y="248" text-anchor="end" class="s-m">only if several: "Which instance?"</text>
+
+        <!-- 4 list contexts -->
+        <line x1="340" y1="290" x2="596" y2="290" class="s-line-a" marker-end="url(#arr-a)"/>
+        <text x="352" y="284" class="s-t">jmxq_listExecutionContexts</text>
+        <line x1="600" y1="290" x2="856" y2="290" class="s-line-t" marker-end="url(#arr-t)"/>
+        <text x="612" y="284" class="s-m">OData call in technical company</text>
+        <!-- 5 describe context -->
+        <line x1="340" y1="324" x2="596" y2="324" class="s-line-a" marker-end="url(#arr-a)"/>
+        <text x="352" y="318" class="s-t">jmxq_describeExecutionContext</text>
+        <line x1="600" y1="324" x2="856" y2="324" class="s-line-t" marker-end="url(#arr-t)"/>
+        <line x1="860" y1="352" x2="344" y2="352" class="s-ret" marker-end="url(#arr)"/>
+        <text x="848" y="346" text-anchor="end" class="s-m">permissions, instructions, allowed execution companies</text>
+
+        <!-- 6 search tables -->
+        <line x1="340" y1="410" x2="596" y2="410" class="s-line-a" marker-end="url(#arr-a)"/>
+        <text x="352" y="404" class="s-t">jmxq_searchTables</text>
+        <line x1="600" y1="410" x2="856" y2="410" class="s-line-t" marker-end="url(#arr-t)"/>
+        <line x1="340" y1="444" x2="596" y2="444" class="s-line-a" marker-end="url(#arr-a)"/>
+        <text x="352" y="438" class="s-t">jmxq_describeTableFields</text>
+        <line x1="600" y1="444" x2="856" y2="444" class="s-line-t" marker-end="url(#arr-t)"/>
+        <line x1="340" y1="478" x2="596" y2="478" class="s-line-a s-dashed" marker-end="url(#arr-a)"/>
+        <text x="352" y="472" class="s-t">jmxq_getGrammar / getExamples</text>
+        <line x1="600" y1="478" x2="856" y2="478" class="s-line-t s-dashed" marker-end="url(#arr-t)"/>
+        <line x1="860" y1="510" x2="344" y2="510" class="s-ret" marker-end="url(#arr)"/>
+        <text x="848" y="504" text-anchor="end" class="s-m">table names, fields, primary keys, EBNF, sample scripts</text>
+
+        <!-- 7 confirm -->
+        <line x1="340" y1="576" x2="114" y2="576" class="s-ret" marker-end="url(#arr)"/>
+        <text x="328" y="570" text-anchor="end" class="s-m">if the script changes data: confirm</text>
+        <!-- 8 execute -->
+        <line x1="340" y1="610" x2="596" y2="610" class="s-line-a" marker-end="url(#arr-a)"/>
+        <text x="352" y="604" class="s-t s-tb">jmxq_executeScript</text>
+        <text x="352" y="626" class="s-m">bcInstance · context · company · script</text>
+        <rect x="610" y="600" width="230" height="52" rx="6" class="s-box"/>
+        <text x="620" y="619" class="s-m">instance enabled? company allowed?</text>
+        <text x="620" y="637" class="s-m">strip comments · write audit entry</text>
+        <line x1="600" y1="672" x2="856" y2="672" class="s-line-t" marker-end="url(#arr-t)"/>
+        <text x="612" y="666" class="s-m">run in execution company</text>
+        <rect x="870" y="652" width="104" height="66" rx="6" class="s-box"/>
+        <text x="878" y="670" class="s-m">enforce rights,</text>
+        <text x="878" y="686" class="s-m">fields, filters,</text>
+        <text x="878" y="702" class="s-m">record limits</text>
+        <line x1="860" y1="732" x2="344" y2="732" class="s-ret" marker-end="url(#arr)"/>
+        <text x="848" y="726" text-anchor="end" class="s-m">JSON result (or a clear error)</text>
+        <line x1="340" y1="766" x2="114" y2="766" class="s-line" marker-end="url(#arr)"/>
+        <text x="328" y="760" text-anchor="end" class="s-t">answer</text>
+      </svg>
+      <figcaption>Dashed calls are optional. Metadata calls use the technical company; only <code>jmxq_executeScript</code> runs in an execution company.</figcaption>
+    </figure>
+
+    <h3>Tool overview</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Tool</th><th>Purpose</th><th>Required arguments</th></tr></thead>
+        <tbody>
+          <tr><td><code>jmxq_ping</code></td><td>Connectivity check, returns <code>pong</code>.</td><td>none</td></tr>
+          <tr><td><code>jmxq_listInstances</code></td><td>First call. Returns the enabled instances and whether the user has to choose.</td><td>none</td></tr>
+          <tr><td><code>jmxq_listExecutionContexts</code></td><td>Contexts visible through the technical company.</td><td><code>bcInstance</code></td></tr>
+          <tr><td><code>jmxq_describeExecutionContext</code></td><td>Permissions, instructions and allowed execution companies.</td><td><code>bcInstance</code>, <code>executionContextCode</code></td></tr>
+          <tr><td><code>jmxq_searchTables</code></td><td>Find tables by wildcard pattern, e.g. <code>*cust*</code>.</td><td><code>bcInstance</code>, <code>executionContextCode</code>, <code>searchPattern</code></td></tr>
+          <tr><td><code>jmxq_describeTableFields</code></td><td>Fields and primary key of a table (name or <code>#ID</code>).</td><td><code>bcInstance</code>, <code>executionContextCode</code>, <code>tableRef</code></td></tr>
+          <tr><td><code>jmxq_getGrammar</code></td><td>JMX-QUERY grammar (EBNF) of the installed app version.</td><td><code>bcInstance</code></td></tr>
+          <tr><td><code>jmxq_getExamples</code></td><td>Sample scripts published by the installed app.</td><td><code>bcInstance</code></td></tr>
+          <tr><td><code>jmxq_getReadmeApi</code></td><td>API-oriented documentation of the installed app.</td><td><code>bcInstance</code></td></tr>
+          <tr><td><code>jmxq_executeScript</code></td><td>Runs a read or write script. Marked as potentially destructive.</td><td><code>bcInstance</code>, <code>executionContextCode</code>, <code>executionCompany</code>, <code>script</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Example call</h3>
+<pre><code>{
+  "name": "jmxq_executeScript",
+  "arguments": {
+    "bcInstance": "&lt;instance name&gt;",
+    "executionContextCode": "&lt;CONTEXT CODE&gt;",
+    "executionCompany": "&lt;allowed company&gt;",
+    "script": "&lt;JMX-QUERY script, see below&gt;"
+  }
+}</code></pre>
+    <p class="sub">A typical read-only script the agent might send (top 10 customers by balance):</p>
+<pre><code>FROM Customer AS c
+| FILTER c."Balance (LCY)" &gt; 0
+| SELECT c."No.", c.Name, c."Balance (LCY)"
+| ORDER BY c."Balance (LCY)" DESC
+| LIMIT 10</code></pre>
+  </section>
+
+  <!-- 7 Security -->
+  <section id="security">
+    <h2><span class="num">8</span>Security layers</h2>
+    <p class="sub">A script reaches data only after passing every layer. The decisive rules sit in Business Central, so they also apply to every other client of the JMX-QUERY app.</p>
+
+    <figure class="diagram">
+      <svg viewBox="0 0 980 230" role="img" aria-labelledby="sec-title sec-desc">
+        <title id="sec-title">Security layers</title>
+        <desc id="sec-desc">Five layers from left to right: network, MCP key, server validation, execution context in Business Central and Business Central user permissions, before data is reached.</desc>
+
+        <text x="10" y="22" class="s-cap">REQUEST</text>
+        <text x="970" y="22" text-anchor="end" class="s-cap s-ct">DATA</text>
+        <line x1="10" y1="34" x2="966" y2="34" class="s-line" marker-end="url(#arr)"/>
+
+        <rect x="10" y="52" width="178" height="166" rx="10" class="s-box"/>
+        <text x="26" y="80" class="s-cap">LAYER 1</text>
+        <text x="26" y="102" class="s-tb">Network</text>
+        <text x="26" y="128" class="s-m">bind address</text>
+        <text x="26" y="146" class="s-m">Windows Firewall rule</text>
+        <text x="26" y="164" class="s-m">TLS reverse proxy</text>
+        <text x="26" y="182" class="s-m">no internet exposure</text>
+
+        <rect x="204" y="52" width="178" height="166" rx="10" class="s-violet"/>
+        <text x="220" y="80" class="s-cap">LAYER 2</text>
+        <text x="220" y="102" class="s-tb">MCP key</text>
+        <text x="220" y="128" class="s-m">Bearer JMXQ_MCPAPI_KEY</text>
+        <text x="220" y="146" class="s-m">separate from Admin key</text>
+        <text x="220" y="164" class="s-m">401 without valid key</text>
+
+        <rect x="398" y="52" width="178" height="166" rx="10" class="s-accent"/>
+        <text x="414" y="80" class="s-cap">LAYER 3</text>
+        <text x="414" y="102" class="s-tb">Server checks</text>
+        <text x="414" y="128" class="s-m">instance exists, enabled</text>
+        <text x="414" y="146" class="s-m">company allowed by context</text>
+        <text x="414" y="164" class="s-m">audit log with request ID</text>
+        <text x="414" y="182" class="s-m">secrets never logged</text>
+
+        <rect x="592" y="52" width="178" height="166" rx="10" class="s-teal"/>
+        <text x="608" y="80" class="s-cap">LAYER 4</text>
+        <text x="608" y="102" class="s-tb">Execution context</text>
+        <text x="608" y="128" class="s-m">table / codeunit rights</text>
+        <text x="608" y="146" class="s-m">allowed fields</text>
+        <text x="608" y="164" class="s-m">security filters</text>
+        <text x="608" y="182" class="s-m">max records per operation</text>
+
+        <rect x="786" y="52" width="184" height="166" rx="10" class="s-teal"/>
+        <text x="802" y="80" class="s-cap">LAYER 5</text>
+        <text x="802" y="102" class="s-tb">BC user rights</text>
+        <text x="802" y="128" class="s-m">permission sets of the</text>
+        <text x="802" y="146" class="s-m">API user or Entra app</text>
+        <text x="802" y="164" class="s-m">standard BC security</text>
+      </svg>
+    </figure>
+
+    <div class="note warn">
+      <p><strong>Write access:</strong> <code>jmxq_executeScript</code> can run <code>INSERT</code>, <code>MODIFY</code>, <code>DELETE</code> and <code>RUN CODEUNIT</code>. Start with read-only execution contexts, grant write rights per table, and keep the record limits small.</p>
+    </div>
+
+    <h3>Recommendations</h3>
+    <div class="grid">
+      <div class="card"><h4>Least privilege</h4><p>One execution context per use case. Prefer explicit table permissions over the "All" switches.</p></div>
+      <div class="card"><h4>Dedicated BC account</h4><p>Use a dedicated user or Entra application for each instance, with only the permissions the contexts need.</p></div>
+      <div class="card"><h4>Separate keys</h4><p>Use three different random values for MCP key, Admin key and master key. Rotate the MCP key when people leave.</p></div>
+      <div class="card"><h4>Protect files</h4><p>Restrict access to <code>.env</code>, <code>data/instances.enc</code> and <code>logs</code>. Logged scripts may contain business data.</p></div>
+    </div>
+  </section>
+
+  <!-- 8 Operations -->
+  <section id="operations">
+    <h2><span class="num">9</span>Operations</h2>
+
+    <h3>Everyday tasks</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Task</th><th>How</th></tr></thead>
+        <tbody>
+          <tr><td>Start interactively</td><td><code>npm start</code> (stop with Ctrl+C); <code>npm start -- --force-ports</code> ends processes blocking the ports.</td></tr>
+          <tr><td>Install / remove service</td><td><code>npm run service:install</code> / <code>npm run service:uninstall</code> (elevated).</td></tr>
+          <tr><td>Disable an instance</td><td>Admin GUI → Instances → <em>Disable</em>. New requests are rejected, running ones finish.</td></tr>
+          <tr><td>Rotate BC credentials</td><td>Edit the instance in the Admin GUI, test the connection, save.</td></tr>
+          <tr><td>Review activity</td><td>Admin GUI → Logs: filter by instance, company, tool, status, request ID and time range.</td></tr>
+          <tr><td>Inspect the protocol</td><td><code>npm run inspect</code> (Stdio) or MCP Inspector with Streamable HTTP and the MCP key.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Backup and upgrade</h3>
+    <ol class="steps">
+      <li><strong>Stop the service</strong>Stop <em>JMX-QUERY MCP Server</em> in <em>services.msc</em>.</li>
+      <li><strong>Back up</strong><code>.env</code>, <code>data/instances.enc</code> and, if audit history matters, the <code>logs</code> folder. Keep the exact <code>INSTANCE_MASTER_KEY</code>.</li>
+      <li><strong>Update</strong>Pull or extract the new version and run <code>npm run bootstrap</code> (or <code>npm ci</code> and <code>npm run build</code>).</li>
+      <li><strong>Verify</strong>Start the service, open <code>/admin</code> and call <code>jmxq_listInstances</code> in the Tools view.</li>
+    </ol>
+
+    <h3>Troubleshooting</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Symptom</th><th>Check</th></tr></thead>
+        <tbody>
+          <tr><td>Server does not start</td><td><code>INSTANCE_MASTER_KEY</code> has at least 32 characters; <code>ADMIN_API_KEY</code> is set when the Admin API is enabled.</td></tr>
+          <tr><td>Client gets <code>401</code></td><td>The client sends <code>Authorization: Bearer &lt;JMXQ_MCPAPI_KEY&gt;</code>, not the Admin key.</td></tr>
+          <tr><td>Client cannot reach the server</td><td><code>MCP_HOST</code> is not <code>127.0.0.1</code> for LAN clients, firewall rule exists, client URL uses the server name.</td></tr>
+          <tr><td>Agent finds no target</td><td>At least one instance is enabled and has a technical company.</td></tr>
+          <tr><td>No execution contexts listed</td><td>Contexts are active and visible in context lists; the API user has the JMX-QUERY permission set; web services are registered.</td></tr>
+          <tr><td>Company rejected</td><td>The company is in the allowed list of the selected execution context.</td></tr>
+          <tr><td>SSO fails only as a service</td><td>The service log-on account is a Business Central user.</td></tr>
+          <tr><td>OAuth fails</td><td>Tenant ID, client ID, secret, environment, admin consent and the Entra application user in Business Central.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    JMX-QUERY MCP Server · overview for administrators and consultants. The full reference is the repository <code>README.md</code>, also available in the Admin GUI under <em>Documentation</em>.
+  </footer>
+</main>
+
+<script>
+  (function () {
+    var tabs = Array.prototype.slice.call(document.querySelectorAll('.tabs [role="tab"]'));
+    function select(tab) {
+      tabs.forEach(function (t) {
+        var on = t === tab;
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+        t.tabIndex = on ? 0 : -1;
+        document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+      });
+    }
+    tabs.forEach(function (tab, i) {
+      tab.addEventListener('click', function () { select(tab); });
+      tab.addEventListener('keydown', function (e) {
+        var n = null;
+        if (e.key === 'ArrowRight') n = tabs[(i + 1) % tabs.length];
+        if (e.key === 'ArrowLeft') n = tabs[(i - 1 + tabs.length) % tabs.length];
+        if (n) { e.preventDefault(); select(n); n.focus(); }
+      });
+    });
+  })();
+</script>
+</body>
+</html>

@@ -194,6 +194,7 @@ if (config.ADMIN_API_ENABLED) {
         logService,
         logger,
         documentationPath: path.resolve(process.cwd(), 'README.md'),
+        overviewPath: path.resolve(process.cwd(), 'docs', 'jmxquery-mcp-overview.html'),
         sessionIdleTimeoutMs: config.ADMIN_SESSION_IDLE_MINUTES * 60_000,
         sessionMaxAgeMs: config.ADMIN_SESSION_MAX_HOURS * 3_600_000,
     });

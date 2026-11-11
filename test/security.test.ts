@@ -247,3 +247,34 @@ test('admin sessions expire after the idle timeout and the maximum age', async t
     // The admin key itself is not affected by session expiry.
     assert.equal((await app.inject({ method: 'GET', url: '/admin/api/instances', headers: { authorization: `Bearer ${ADMIN_KEY}` } })).statusCode, 200);
 });
+
+test('visual overview requires an admin session and is served with a locked-down CSP', async t => {
+    const overviewPath = path.resolve('docs', 'jmxquery-mcp-overview.html');
+    const app = await createAdminApp(t, { overviewPath });
+    const url = '/admin/api/documentation/overview';
+
+    const anonymous = await app.inject({ method: 'GET', url });
+    assert.equal(anonymous.statusCode, 401);
+    assert.doesNotMatch(anonymous.body, /<html/i);
+
+    const login = await app.inject({ method: 'POST', url: '/admin/api/session', headers: { authorization: `Bearer ${ADMIN_KEY}` } });
+    const cookie = String(login.headers['set-cookie']).split(';')[0];
+    const response = await app.inject({ method: 'GET', url, headers: { cookie } });
+    assert.equal(response.statusCode, 200);
+    assert.match(String(response.headers['content-type']), /^text\/html/);
+    assert.match(String(response.headers['content-security-policy']), /default-src 'none'/);
+    assert.match(String(response.headers['content-security-policy']), /frame-ancestors 'none'/);
+    assert.equal(response.headers['x-content-type-options'], 'nosniff');
+    assert.match(response.body, /<title>JMX-QUERY MCP Server Guide<\/title>/);
+});
+
+test('visual overview returns 404 when the page is not configured or missing', async t => {
+    const authorization = `Bearer ${ADMIN_KEY}`;
+    const url = '/admin/api/documentation/overview';
+
+    const unset = await createAdminApp(t);
+    assert.equal((await unset.inject({ method: 'GET', url, headers: { authorization } })).statusCode, 404);
+
+    const missing = await createAdminApp(t, { overviewPath: path.join(tmpdir(), 'jmxq-missing-overview.html') });
+    assert.equal((await missing.inject({ method: 'GET', url, headers: { authorization } })).statusCode, 404);
+});

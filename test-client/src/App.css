@@ -145,6 +145,7 @@ h3 {
   font: inherit;
   gap: 8px;
   justify-content: center;
+  text-decoration: none;
 }
 .primary-button {
   background: #bf6543;
