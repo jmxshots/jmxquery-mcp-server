@@ -7,6 +7,9 @@ import { executeTool, isRegisteredTool, toolDefinitions } from '../mcp/tools.js'
 import { getBearerToken, secretsEqual } from '../utils/secureCompare.js';
 export const ADMIN_API_PREFIX = '/admin/api';
 const ADMIN_SESSION_COOKIE = 'jmxquery_admin_session';
+export const DEFAULT_SESSION_IDLE_TIMEOUT_MS = 60 * 60 * 1000;
+export const DEFAULT_SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+const SSE_HEARTBEAT_MS = 30000;
 const defaultTransientConnectionClient = (input) => {
     const connection = connectionConfigSchema.parse(input);
     const timestamp = new Date().toISOString();
@@ -56,12 +59,35 @@ export async function registerAdminApi(app, deps) {
     const { instanceRegistry, bcClientFactory, logService, logger } = deps;
     const adminApiKey = deps.adminApiKey.trim();
     const createTransientConnectionClient = deps.createTransientConnectionClient ?? defaultTransientConnectionClient;
-    const adminSessions = new Set();
-    const hasValidAdminSession = (request) => {
-        const sessionId = getCookieValue(request, ADMIN_SESSION_COOKIE);
-        return !!sessionId && adminSessions.has(sessionId);
+    const now = deps.now ?? Date.now;
+    const sessionIdleTimeoutMs = deps.sessionIdleTimeoutMs ?? DEFAULT_SESSION_IDLE_TIMEOUT_MS;
+    const sessionMaxAgeMs = deps.sessionMaxAgeMs ?? DEFAULT_SESSION_MAX_AGE_MS;
+    const adminSessions = new Map();
+    const isSessionActive = (session, at) => at - session.lastSeenAt < sessionIdleTimeoutMs && at - session.createdAt < sessionMaxAgeMs;
+    const removeExpiredSessions = (at) => {
+        for (const [sessionId, session] of adminSessions) {
+            if (!isSessionActive(session, at))
+                adminSessions.delete(sessionId);
+        }
     };
-    const isAuthenticated = (request) => secretsEqual(getBearerToken(request.headers.authorization), adminApiKey) || hasValidAdminSession(request);
+    /** Checks the session cookie; an active session's idle timer restarts only when touch is true. */
+    const hasValidAdminSession = (sessionId, touch) => {
+        if (!sessionId)
+            return false;
+        const session = adminSessions.get(sessionId);
+        if (!session)
+            return false;
+        const at = now();
+        if (!isSessionActive(session, at)) {
+            adminSessions.delete(sessionId);
+            return false;
+        }
+        if (touch)
+            session.lastSeenAt = at;
+        return true;
+    };
+    const hasValidAdminKey = (request) => secretsEqual(getBearerToken(request.headers.authorization), adminApiKey);
+    const isAuthenticated = (request) => hasValidAdminKey(request) || hasValidAdminSession(getCookieValue(request, ADMIN_SESSION_COOKIE), true);
     const sessionCookieAttributes = (request, extra = []) => {
         const attributes = ['HttpOnly', `Path=${ADMIN_API_PREFIX}`, 'SameSite=Strict', ...extra];
         if (request.protocol === 'https')
@@ -72,9 +98,11 @@ export async function registerAdminApi(app, deps) {
         const priorSessionId = getCookieValue(request, ADMIN_SESSION_COOKIE);
         if (priorSessionId)
             adminSessions.delete(priorSessionId);
+        const at = now();
+        removeExpiredSessions(at);
         const sessionId = randomUUID();
-        adminSessions.add(sessionId);
-        return `${ADMIN_SESSION_COOKIE}=${sessionId}; ${sessionCookieAttributes(request)}`;
+        adminSessions.set(sessionId, { createdAt: at, lastSeenAt: at });
+        return `${ADMIN_SESSION_COOKIE}=${sessionId}; ${sessionCookieAttributes(request, [`Max-Age=${Math.floor(sessionMaxAgeMs / 1000)}`])}`;
     };
     const clearSessionCookie = (request) => {
         const sessionId = getCookieValue(request, ADMIN_SESSION_COOKIE);
@@ -365,7 +393,10 @@ export async function registerAdminApi(app, deps) {
             reply.header('cache-control', 'no-store');
             return logService.clear(parsedRetentionDays);
         });
-        api.get('/logs/events', async (_request, reply) => {
+        api.get('/logs/events', async (request, reply) => {
+            // A stream opened with a session cookie ends when that session expires or logs out.
+            // Heartbeats do not count as activity, so an open log view does not keep a session alive.
+            const streamSessionId = hasValidAdminKey(request) ? undefined : getCookieValue(request, ADMIN_SESSION_COOKIE);
             reply.hijack();
             const response = reply.raw;
             response.writeHead(200, {
@@ -380,9 +411,14 @@ export async function registerAdminApi(app, deps) {
                 }
             });
             const heartbeat = setInterval(() => {
-                if (!response.destroyed)
-                    response.write(': keepalive\n\n');
-            }, 30000);
+                if (response.destroyed)
+                    return;
+                if (streamSessionId && !hasValidAdminSession(streamSessionId, false)) {
+                    response.end();
+                    return;
+                }
+                response.write(': keepalive\n\n');
+            }, SSE_HEARTBEAT_MS);
             response.on('close', () => {
                 clearInterval(heartbeat);
                 unsubscribe();

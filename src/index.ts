@@ -140,12 +140,15 @@ if (adminUiAvailable) {
     });
 }
 
-// Configure the underlying Node server timeouts
-fastify.addHook('onReady', () => {
-    fastify.server.keepAliveTimeout = 0;
-    fastify.server.headersTimeout = 0;
-    fastify.server.requestTimeout = 0;
-});
+// Node server timeouts. They limit how long a client may take to SEND a request (slowloris
+// protection); they do not limit response time, so long Business Central calls and open SSE
+// streams are unaffected. Socket inactivity stays disabled (connectionTimeout: 0) for SSE.
+const applyServerTimeouts = (server: import('node:http').Server) => {
+    server.headersTimeout = 30_000;
+    server.requestTimeout = 120_000;
+    server.keepAliveTimeout = 65_000;
+};
+fastify.addHook('onReady', () => applyServerTimeouts(fastify.server));
 
 // NOTE: Each transport needs its OWN MCP server instance.
 // Protocol.connect() replaces the internal _transport reference,
@@ -191,6 +194,8 @@ if (config.ADMIN_API_ENABLED) {
         logService,
         logger,
         documentationPath: path.resolve(process.cwd(), 'README.md'),
+        sessionIdleTimeoutMs: config.ADMIN_SESSION_IDLE_MINUTES * 60_000,
+        sessionMaxAgeMs: config.ADMIN_SESSION_MAX_HOURS * 3_600_000,
     });
 }
 
@@ -394,11 +399,7 @@ if (streamablePort) {
         ],
         exposedHeaders: ['mcp-session-id', 'mcp-protocol-version'],
     });
-    streamableFastify.addHook('onReady', () => {
-        streamableFastify.server.keepAliveTimeout = 0;
-        streamableFastify.server.headersTimeout = 0;
-        streamableFastify.server.requestTimeout = 0;
-    });
+    streamableFastify.addHook('onReady', () => applyServerTimeouts(streamableFastify.server));
 }
 
 const handleStreamableRequest = async (request: any, reply: any) => {
@@ -451,10 +452,16 @@ streamableFastify.all('/mcp/stream', handleStreamableRequest);
 streamableFastify.all('/mcp/stream/*', handleStreamableRequest);
 
 // --- Stdio Transport (for AI Agents like Claude Desktop/Cline) ---
+// MCP_STDIO=auto starts stdio only when stdin is not a terminal, i.e. when an MCP client
+// launched this process and talks over pipes. In a terminal (npm start) stdin is a TTY, and
+// the Windows service sets MCP_STDIO=off (see scripts/install-service.js).
+const isStdioEnabled = (): boolean => {
+    if (config.MCP_STDIO === 'on') return true;
+    if (config.MCP_STDIO === 'off') return false;
+    return !process.stdin.isTTY;
+};
+
 const startStdio = async () => {
-    // Check if we are in a TTY. If not, we probably want Stdio support.
-    // However, it's safer to always try to connect it if it's not a terminal
-    // or if the user explicitly wants it. For MCP servers, adding it doesn't hurt.
     try {
         const stdioMcpServer = createMcpServer(bcClientFactory, logService);
         const stdioTransport = new StdioServerTransport();
@@ -474,8 +481,12 @@ const start = async () => {
             return;
         }
 
-        // Start Stdio transport in parallel
-        startStdio();
+        if (isStdioEnabled()) {
+            // Start Stdio transport in parallel
+            startStdio();
+        } else {
+            logger.info(`MCP Stdio transport disabled (MCP_STDIO=${config.MCP_STDIO})`);
+        }
 
         logger.info('MCP Streamable HTTP transport ready');
 

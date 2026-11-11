@@ -9,6 +9,7 @@ import {
     enableLanAccess,
     getAdminUrl,
     hasInstalledDependencies,
+    maskSecret,
     parseArguments,
     provisionConfiguration,
     runBootstrap,
@@ -108,11 +109,13 @@ test('runBootstrap executes the dependency, build, and service phases in order',
         writeFileSync(path.join(rootDirectory, '.env'), validConfiguration);
         const commands: Array<{ command: string; args: string[] }> = [];
         const messages: string[] = [];
+        const clipboardWrites: string[] = [];
 
         runBootstrap({
             rootDirectory,
             platform: 'win32',
             nodeExecutable: 'node.exe',
+            clipboard: (text: string) => { clipboardWrites.push(text); return true; },
             commandShell: 'cmd.exe',
             machineHostname: 'jmxquery-host',
             bootstrapSettings: {
@@ -120,6 +123,7 @@ test('runBootstrap executes the dependency, build, and service phases in order',
                 streamablePort: '5101',
                 adminApiKey: 'new-admin-key-that-is-long-enough-to-be-secure',
                 mcpApiKey: 'new-mcp-key-that-is-long-enough-to-be-secure',
+                copyAdminKeyToClipboard: true,
             },
             logger: message => messages.push(message),
             runCommand: (command, args) => {
@@ -141,8 +145,13 @@ test('runBootstrap executes the dependency, build, and service phases in order',
         assert.ok(messages.includes(`Keys and service configuration: ${path.join(rootDirectory, '.env')}`));
         assert.ok(messages.includes('MCP port: 5100'));
         assert.ok(messages.includes('Streamable HTTP port: 5101'));
-        assert.ok(messages.includes('ADMIN_API_KEY: new-admin-key-that-is-long-enough-to-be-secure'));
-        assert.ok(messages.includes('JMXQ_MCPAPI_KEY: new-mcp-key-that-is-long-enough-to-be-secure'));
+        // Keys never appear in the console output; the admin key goes to the clipboard on request.
+        assert.deepEqual(clipboardWrites, ['new-admin-key-that-is-long-enough-to-be-secure']);
+        assert.ok(messages.some(message => message.startsWith('ADMIN_API_KEY ...cure: copied to the clipboard.')));
+        assert.ok(messages.some(message => message.startsWith('JMXQ_MCPAPI_KEY ...cure: after login, open Connect')));
+        for (const secret of ['new-admin-key-that-is-long-enough-to-be-secure', 'new-mcp-key-that-is-long-enough-to-be-secure']) {
+            assert.ok(messages.every(message => !message.includes(secret)), 'a key was written to the console');
+        }
         assert.ok(messages.some(message => message.includes('stored encrypted in the Instance Store')));
         assert.ok(messages.every(message => !message.includes('master-key-that-is-long-enough-to-be-secure')));
     });
@@ -227,11 +236,13 @@ test('runBootstrap skips matching dependencies and service installation when req
         writeFileSync(path.join(rootDirectory, '.env'), validConfiguration);
         const commands: Array<{ command: string; args: string[] }> = [];
         const messages: string[] = [];
+        const clipboardWrites: string[] = [];
 
         runBootstrap({
             rootDirectory,
             platform: 'win32',
             commandShell: 'cmd.exe',
+            clipboard: (text: string) => { clipboardWrites.push(text); return true; },
             machineHostname: 'jmxquery-host',
             bootstrapSettings: { installWindowsService: false },
             dependencyCheck: () => true,
@@ -249,6 +260,10 @@ test('runBootstrap skips matching dependencies and service installation when req
         assert.ok(messages.includes('Admin GUI dependencies already match package-lock.json.'));
         assert.ok(messages.includes('5/5 Windows service installation skipped.'));
         assert.ok(messages.includes('Start manually: npm start'));
+        // Without an explicit opt-in nothing is copied, and the console points to the .env file.
+        assert.deepEqual(clipboardWrites, []);
+        assert.ok(messages.includes(`ADMIN_API_KEY ...cure: read it from ${path.join(rootDirectory, '.env')} for the Admin GUI login.`));
+        assert.ok(messages.every(message => !message.includes('admin-key-that-is-long-enough-to-be-secure')));
     });
 });
 
@@ -275,5 +290,30 @@ test('hasInstalledDependencies compares installed packages with the lockfile', (
         lockfile.packages['node_modules/example'].version = '2.0.0';
         writeFileSync(path.join(rootDirectory, 'package-lock.json'), JSON.stringify(lockfile));
         assert.equal(hasInstalledDependencies(rootDirectory), false);
+    });
+});
+test('maskSecret shows only the last four characters', () => {
+    assert.equal(maskSecret('abcdefghijkl'), '...ijkl');
+    assert.equal(maskSecret(''), '(not set)');
+    assert.equal(maskSecret(undefined), '(not set)');
+});
+
+test('runBootstrap falls back to the .env hint when the clipboard is unavailable', () => {
+    withTemporaryProject(rootDirectory => {
+        writeFileSync(path.join(rootDirectory, '.env'), validConfiguration);
+        const messages: string[] = [];
+        runBootstrap({
+            rootDirectory,
+            platform: 'win32',
+            commandShell: 'cmd.exe',
+            machineHostname: 'jmxquery-host',
+            bootstrapSettings: { installWindowsService: false, copyAdminKeyToClipboard: true },
+            dependencyCheck: () => true,
+            clipboard: () => false,
+            logger: message => messages.push(message),
+            runCommand: () => ({ status: 0 }),
+        });
+        assert.ok(messages.some(message => message.startsWith('ADMIN_API_KEY ...cure: read it from ')));
+        assert.ok(messages.every(message => !message.includes('admin-key-that-is-long-enough-to-be-secure')));
     });
 });

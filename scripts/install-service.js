@@ -27,8 +27,13 @@ if (!fs.existsSync(resolvedEnvFile)) {
 }
 const raw = fs.readFileSync(resolvedEnvFile, 'utf8');
 const parsed = dotenv.parse(raw);
-const serviceEnv = Object.entries(parsed).map(([name, value]) => ({ name, value }));
+// A service has no MCP client on stdin, and its stdin is not a terminal, so MCP_STDIO=auto
+// would start stdio. Always disable it; the service only serves the HTTP transports.
+const serviceEnv = Object.entries(parsed)
+    .filter(([name]) => name !== 'MCP_STDIO')
+    .map(([name, value]) => ({ name, value }));
 serviceEnv.push({ name: 'DOTENV_CONFIG_PATH', value: resolvedEnvFile });
+serviceEnv.push({ name: 'MCP_STDIO', value: 'off' });
 
 console.log(`Installing service: "${serviceName}" with ${resolvedEnvFile}`);
 

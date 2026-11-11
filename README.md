@@ -10,7 +10,7 @@ The integrated Admin GUI at `/admin` manages connections, technical Companies, s
 - **Technical Company**: one Business Central `company` value stored on each Instance. The server uses it for API information, context, table, and metadata calls.
 - **Execution Company**: a Company returned by an execution context. It is provided only to `jmxq_executeScript` and is validated by the server before script execution.
 - **MCP target**: every Business Central MCP tool requires `bcInstance`; `jmxq_executeScript` additionally requires `executionContextCode` and `executionCompany`.
-- **One service**: one Windows service exposes Stdio, SSE, and Streamable HTTP MCP transports plus the Admin GUI.
+- **One service**: one Windows service exposes the SSE and Streamable HTTP MCP transports plus the Admin GUI. Stdio is available when an MCP client launches the server directly (`MCP_STDIO`).
 
 The terms are deliberate: `tenantId` is only an Entra ID OAuth tenant identifier. It is not a Business Central Company.
 
@@ -44,7 +44,7 @@ The bootstrap interactively asks for the main and Streamable HTTP ports. For `AD
 
 Choose whether to install or update **JMX-QUERY MCP Server** as a Windows service. When declined, the build remains ready for an interactive session and Bootstrap prints `npm start` as the manual start command.
 
-The completion summary displays the Admin URLs, ports, `ADMIN_API_KEY`, and `JMXQ_MCPAPI_KEY`. Treat the terminal output as sensitive. The master key is not displayed. Restrict inbound access to trusted networks with Windows Firewall.
+The completion summary displays the Admin URLs and ports. Keys are never written to the console; only their last four characters are shown so you can tell them apart. Bootstrap offers to copy `ADMIN_API_KEY` to the clipboard for the first Admin GUI login; otherwise read it from `.env`. Clear the clipboard after login if Windows clipboard history is enabled. After login, reveal or copy `JMXQ_MCPAPI_KEY` on the **Connect** page of the Admin GUI. Restrict inbound access to trusted networks with Windows Firewall.
 
 An existing `.env` is validated before building. Existing keys and application settings are preserved; Bootstrap only changes a loopback `MCP_HOST` to `0.0.0.0` and adds the current computer hostname to `MCP_CORS_ORIGINS`. If the file still contains template placeholders, has a master key shorter than 32 characters, or enables the Admin API without an Admin key, Bootstrap stops before changing it.
 
@@ -125,6 +125,9 @@ For an interactive verification without installing a service, start the server w
 | `JMXQ_MCPAPI_KEY` | Bearer key for HTTP MCP endpoints. | unset |
 | `ADMIN_API_ENABLED` | Enables protected Admin API and GUI access. | `false` |
 | `ADMIN_API_KEY` | Bearer key for Admin API and GUI login. Required when Admin API is enabled. | unset |
+| `ADMIN_SESSION_IDLE_MINUTES` | Admin GUI session ends after this many minutes without an Admin API request (1-1440). | `60` |
+| `ADMIN_SESSION_MAX_HOURS` | Admin GUI session ends this many hours after login, regardless of activity (1-168). | `12` |
+| `MCP_STDIO` | Stdio MCP transport: `auto` starts it only when stdin is not a terminal (an MCP client launched the process); `on` or `off` force it. The Windows service always uses `off`. | `auto` |
 | `INSTANCE_MASTER_KEY` | Master key for AES-256-GCM Instance Store encryption. Required. | unset |
 | `INSTANCE_STORE_PATH` | Encrypted Instance Store path. | `./data/instances.enc` |
 | `LOG_DIR` | Directory for rotated JSONL audit logs. | `./logs` |
@@ -152,7 +155,7 @@ For SSO, open `services.msc`, select **JMX-QUERY MCP Server**, open **Properties
 
 ## Admin GUI
 
-Open `/admin` on the main service port. The login screen automatically uses the server that delivered the Admin GUI and requests only the Admin API key. After a successful login, the browser receives a server-issued `HttpOnly` session cookie, so reloading the page keeps the Admin session until **Sign out**, the browser is closed, or the server restarts. The Admin API key is not stored in browser storage; **Sign out** revokes and clears the session.
+Open `/admin` on the main service port. The login screen automatically uses the server that delivered the Admin GUI and requests only the Admin API key. After a successful login, the browser receives a server-issued `HttpOnly` session cookie, so reloading the page keeps the Admin session until **Sign out**, the server restarts, the session has been idle for `ADMIN_SESSION_IDLE_MINUTES` (default 60), or `ADMIN_SESSION_MAX_HOURS` (default 12) have passed since login. An open log stream ends with its session; after expiry the Admin GUI returns to the login screen. The Admin API key is not stored in browser storage; **Sign out** revokes and clears the session.
 
 ### Instances
 

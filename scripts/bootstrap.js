@@ -18,6 +18,15 @@ export const secretPlaceholders = {
 
 export const createSecret = () => randomBytes(48).toString('hex');
 
+/** Identifies a key in console output without revealing it. */
+export const maskSecret = (value) => value ? `...${value.slice(-4)}` : '(not set)';
+
+/** Copies text to the Windows clipboard. Returns false when clip.exe is unavailable or fails. */
+export const copyToClipboard = (text) => {
+    const result = spawnSync('clip.exe', [], { input: text, windowsHide: true });
+    return !result.error && result.status === 0;
+};
+
 const parseEnv = (contents) => Object.fromEntries(contents
     .split(/\r?\n/)
     .map(line => line.trim())
@@ -162,6 +171,17 @@ const promptForSecret = async (readline, name, currentValue) => {
     }
 };
 
+const promptForClipboardCopy = async (readline) => {
+    while (true) {
+        const answer = (await readline.question(
+            'Copy ADMIN_API_KEY to the clipboard for the first Admin GUI login? [Y/n]: ',
+        )).trim().toLowerCase() || 'y';
+        if (answer === 'y' || answer === 'yes') return true;
+        if (answer === 'n' || answer === 'no') return false;
+        console.log('Please answer Y or N.');
+    }
+};
+
 const promptForServiceInstallation = async (readline) => {
     while (true) {
         const answer = (await readline.question('Install or update the Windows service? [Y/n]: '))
@@ -193,10 +213,11 @@ export const promptForBootstrapSettings = async (rootDirectory = projectRoot, {
         const adminApiKey = await promptForSecret(readline, 'ADMIN_API_KEY', values.ADMIN_API_KEY);
         const mcpApiKey = await promptForSecret(readline, 'JMXQ_MCPAPI_KEY', values.JMXQ_MCPAPI_KEY);
         const installWindowsService = await promptForServiceInstallation(readline);
+        const copyAdminKeyToClipboard = await promptForClipboardCopy(readline);
         console.log(isConfiguredSecret('INSTANCE_MASTER_KEY', values.INSTANCE_MASTER_KEY)
             ? 'INSTANCE_MASTER_KEY: keeping the existing automatically generated key.'
             : 'INSTANCE_MASTER_KEY: will be generated automatically.');
-        return { mcpPort, streamablePort, adminApiKey, mcpApiKey, installWindowsService };
+        return { mcpPort, streamablePort, adminApiKey, mcpApiKey, installWindowsService, copyAdminKeyToClipboard };
     } finally {
         readline.close();
     }
@@ -353,6 +374,7 @@ export const runBootstrap = ({
     runCommand: commandRunner = runCommand,
     logger = console.log,
     generateSecret = createSecret,
+    clipboard = copyToClipboard,
 } = {}) => {
     if (platform !== 'win32') {
         throw new Error('Bootstrap installs a Windows service and must be run on Windows.');
@@ -419,8 +441,14 @@ export const runBootstrap = ({
     const finalValues = parseEnv(lanAccess.contents);
     logger(`MCP port: ${finalValues.MCP_PORT}`);
     logger(`Streamable HTTP port: ${finalValues.MCP_STREAMABLE_PORT}`);
-    logger(`ADMIN_API_KEY: ${finalValues.ADMIN_API_KEY}`);
-    logger(`JMXQ_MCPAPI_KEY: ${finalValues.JMXQ_MCPAPI_KEY}`);
+    // Keys are never written to the console (terminal scrollback, transcripts, screen sharing).
+    const adminKeyCopied = bootstrapSettings.copyAdminKeyToClipboard === true
+        && Boolean(finalValues.ADMIN_API_KEY)
+        && clipboard(finalValues.ADMIN_API_KEY);
+    logger(adminKeyCopied
+        ? `ADMIN_API_KEY ${maskSecret(finalValues.ADMIN_API_KEY)}: copied to the clipboard. Paste it into the Admin GUI login, then clear the clipboard if Windows clipboard history is enabled.`
+        : `ADMIN_API_KEY ${maskSecret(finalValues.ADMIN_API_KEY)}: read it from ${configuration.envPath} for the Admin GUI login.`);
+    logger(`JMXQ_MCPAPI_KEY ${maskSecret(finalValues.JMXQ_MCPAPI_KEY)}: after login, open Connect in the Admin GUI to reveal or copy it.`);
     logger(`Keys and service configuration: ${configuration.envPath}`);
     logger(`The Admin GUI should now be available at ${lanAccess.lanOrigin}/admin.`);
     logger(`Port ${finalValues.MCP_PORT} may need to be allowed for private networks in Windows Firewall.`);

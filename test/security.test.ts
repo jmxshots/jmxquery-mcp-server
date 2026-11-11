@@ -7,7 +7,7 @@ import path from 'node:path';
 import test from 'node:test';
 import Fastify from 'fastify';
 import { pino } from 'pino';
-import { registerAdminApi } from '../src/admin/routes.js';
+import { registerAdminApi, type AdminApiDependencies } from '../src/admin/routes.js';
 import { BcClient } from '../src/bcClient.js';
 import { BcClientFactory } from '../src/instances/clientFactory.js';
 import { EncryptedInstanceRegistry } from '../src/instances/registry.js';
@@ -19,7 +19,7 @@ const ADMIN_KEY = 'admin-key-for-tests-0123456789';
 const MCP_KEY = 'mcp-key-for-tests-0123456789abcdef';
 const isWindows = process.platform === 'win32';
 
-const createAdminApp = async (t: test.TestContext) => {
+const createAdminApp = async (t: test.TestContext, options: Partial<AdminApiDependencies> = {}) => {
     const directory = mkdtempSync(path.join(tmpdir(), 'jmxq-admin-security-'));
     const registry = new EncryptedInstanceRegistry(path.join(directory, 'instances.enc'), 'x'.repeat(40));
     await registry.load();
@@ -42,6 +42,7 @@ const createAdminApp = async (t: test.TestContext) => {
         logService: new LogService(path.join(directory, 'logs'), 30, 4000),
         logger: pino({ level: 'silent' }),
         documentationPath: path.join(directory, 'README.md'),
+        ...options,
     });
     await app.ready();
 
@@ -211,4 +212,38 @@ test('SSO callAction sends the script body unchanged and never executes it', { s
     assert.equal(requestUrl.pathname, '/BC/ODataV4/JMXQ_ApiService_ExecuteScript');
     assert.equal(requestUrl.searchParams.get('company'), `Company ’$(x)'"`);
     assert.equal(existsSync(markerFile), false, 'script content must never be executed as PowerShell code');
+});
+
+test('admin sessions expire after the idle timeout and the maximum age', async t => {
+    let clock = 1_000_000;
+    const minute = 60_000;
+    const app = await createAdminApp(t, { now: () => clock, sessionIdleTimeoutMs: 10 * minute, sessionMaxAgeMs: 60 * minute });
+    const login = async () => {
+        const response = await app.inject({ method: 'POST', url: '/admin/api/session', headers: { authorization: `Bearer ${ADMIN_KEY}` } });
+        assert.match(String(response.headers['set-cookie']), /Max-Age=3600/);
+        return String(response.headers['set-cookie']).split(';')[0];
+    };
+    const status = async (cookie: string) => (await app.inject({ method: 'GET', url: '/admin/api/session', headers: { cookie } })).statusCode;
+
+    // Idle timeout: activity keeps the session alive, inactivity ends it.
+    let cookie = await login();
+    clock += 9 * minute;
+    assert.equal(await status(cookie), 200, 'active within the idle timeout');
+    clock += 9 * minute;
+    assert.equal(await status(cookie), 200, 'the previous request restarted the idle timer');
+    clock += 10 * minute;
+    assert.equal(await status(cookie), 401, 'expired after 10 idle minutes');
+    assert.equal(await status(cookie), 401, 'stays expired');
+
+    // Maximum age: ends even with continuous activity.
+    cookie = await login();
+    for (let elapsed = 0; elapsed < 55; elapsed += 5) {
+        clock += 5 * minute;
+        assert.equal(await status(cookie), 200, `active after ${elapsed + 5} minutes`);
+    }
+    clock += 5 * minute;
+    assert.equal(await status(cookie), 401, 'expired after the maximum age despite activity');
+
+    // The admin key itself is not affected by session expiry.
+    assert.equal((await app.inject({ method: 'GET', url: '/admin/api/instances', headers: { authorization: `Bearer ${ADMIN_KEY}` } })).statusCode, 200);
 });
