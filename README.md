@@ -115,7 +115,9 @@ The server uses three different keys. All of them are stored in `.env`.
 ### Prerequisites
 
 - Windows 10, Windows 11, or Windows Server.
-- Current Node.js LTS with `npm`.
+- Current Node.js LTS with `npm`. `npm` is included in the Node.js installation and needs no separate setup.
+- Git for Windows, recommended. It is required for cloning the repository and for updates with `npm run service:update -- --pull`. Without Git, download the repository as a ZIP file and update it manually.
+- GitHub CLI (`gh`), optional. It is an alternative way to clone the repository and is not needed to run the server.
 - Network access from the server to each Business Central OData endpoint or to Business Central Online.
 - Administrator rights on the server for installing, updating, or removing the service.
 - A Business Central user, application, or service account with the required JMX-QUERY permissions.
@@ -124,20 +126,42 @@ The server uses three different keys. All of them are stored in `.env`.
 
 ### Standard Installation
 
-1. Clone or extract the repository.
+1. Install the command-line tools. Skip any tool that is already installed.
 
    ```powershell
-   git clone <repository-url>
+   winget install OpenJS.NodeJS.LTS   # Node.js including npm (required)
+   winget install Git.Git             # Git (recommended)
+   winget install GitHub.cli          # GitHub CLI (optional)
+   ```
+
+   Open a new PowerShell window afterwards so that the tools are on the `PATH`, then check the installation:
+
+   ```powershell
+   node -v
+   npm -v
+   git --version
+   ```
+
+   If `node` or `npm` is still not found, restart the terminal or VS Code completely. To update `npm` itself, run `npm install -g npm@latest`.
+
+   On Windows Server, `winget` is often not available. Use the installers from [nodejs.org](https://nodejs.org) and [git-scm.com](https://git-scm.com), or, if Chocolatey is installed, run `choco install nodejs-lts git gh -y`.
+
+2. Clone the repository. The repository is public, so no GitHub login is needed.
+
+   ```powershell
+   git clone https://github.com/jmxshots/jmxquery-mcp-server.git
    Set-Location jmxquery-mcp-server
    ```
 
-2. Run the bootstrap from an elevated PowerShell in the repository.
+   With the GitHub CLI, `gh repo clone jmxshots/jmxquery-mcp-server` does the same. Without Git, download the ZIP file from the repository page (**Code** > **Download ZIP**) and extract it. A ZIP extract cannot be updated with `--pull`.
+
+3. Run the bootstrap from an elevated PowerShell in the repository.
 
    ```powershell
    npm run bootstrap
    ```
 
-3. Answer the prompts:
+4. Answer the prompts:
    - **Ports**: the main port `MCP_PORT` (Admin GUI and SSE) and the Streamable HTTP port `MCP_STREAMABLE_PORT`.
    - **Keys**: for `ADMIN_API_KEY` and `JMXQ_MCPAPI_KEY`, keep an existing value, generate a new one, or enter one manually.
    - **Windows service**: install or update the service. When declined, start the server manually with `npm start`.
