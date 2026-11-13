@@ -18,6 +18,7 @@ This manual is for administrators who install, configure, and operate the server
 4. [Connecting Business Central](#connecting-business-central)
    - [First Login](#first-login)
    - [Creating an Instance](#creating-an-instance)
+   - [Preparing OAuth for Business Central Online](#preparing-oauth-for-business-central-online)
    - [Selecting the Technical Company](#selecting-the-technical-company)
    - [Verifying the Connection](#verifying-the-connection)
 5. [Connecting MCP Clients](#connecting-mcp-clients)
@@ -114,17 +115,26 @@ The server uses three different keys. All of them are stored in `.env`.
 
 ### Prerequisites
 
+**Server**
+
 - Windows 10, Windows 11, or Windows Server.
-- Current Node.js LTS with `npm`. `npm` is included in the Node.js installation and needs no separate setup.
+- Administrator rights for installing, updating, or removing the service.
+- Node.js 20.18 or later with `npm`; the current LTS version is recommended. `npm` is included in the Node.js installation and needs no separate setup.
 - Git for Windows, recommended. It is required for cloning the repository and for updates with `npm run service:update -- --pull`. Without Git, download the repository as a ZIP file and update it manually.
 - GitHub CLI (`gh`), optional. It is an alternative way to clone the repository and is not needed to run the server.
+- Internet access to `github.com` and `registry.npmjs.org` during installation and updates. If the server uses a proxy, configure it for Git and npm, for example with `npm config set proxy http://proxy:8080` and `npm config set https-proxy http://proxy:8080`.
+
+**Business Central**
+
+- The [JMX-QUERY Business Central app](https://github.com/jmxshots/AL-JMX.QUERY) installed in every target Business Central system, with at least one execution context.
 - Network access from the server to each Business Central OData endpoint or to Business Central Online.
-- Administrator rights on the server for installing, updating, or removing the service.
-- A Business Central user, application, or service account with the required JMX-QUERY permissions.
-- The [JMX-QUERY Business Central app](https://github.com/jmxshots/AL-JMX.QUERY) installed in every target Business Central system.
-- For SSO: a domain service account that is an authorized Business Central user, see [Service Account for SSO](#service-account-for-sso).
+- A Business Central user or Entra ID application for each Instance, with the permission set `JMXQ_JMXQuery` and the data permissions the agents need.
+- For `OAUTH`: an Entra ID app registration, see [Preparing OAuth for Business Central Online](#preparing-oauth-for-business-central-online).
+- For `SSO`: a domain service account that is an authorized Business Central user, see [Service Account for SSO](#service-account-for-sso).
 
 ### Standard Installation
+
+Run all steps in an elevated PowerShell (**Run as administrator**).
 
 1. Install the command-line tools. Skip any tool that is already installed.
 
@@ -146,16 +156,18 @@ The server uses three different keys. All of them are stored in `.env`.
 
    On Windows Server, `winget` is often not available. Use the installers from [nodejs.org](https://nodejs.org) and [git-scm.com](https://git-scm.com), or, if Chocolatey is installed, run `choco install nodejs-lts git gh -y`.
 
-2. Clone the repository. The repository is public, so no GitHub login is needed.
+2. Clone the repository into a permanent folder outside any user profile, for example `C:\Services`. The service runs from this folder, and `.env`, `data/`, and `logs/` are stored in it. The repository is public, so no GitHub login is needed.
 
    ```powershell
+   New-Item -ItemType Directory -Force C:\Services | Out-Null
+   Set-Location C:\Services
    git clone https://github.com/jmxshots/jmxquery-mcp-server.git
    Set-Location jmxquery-mcp-server
    ```
 
    With the GitHub CLI, `gh repo clone jmxshots/jmxquery-mcp-server` does the same. Without Git, download the ZIP file from the repository page (**Code** > **Download ZIP**) and extract it. A ZIP extract cannot be updated with `--pull`.
 
-3. Run the bootstrap from an elevated PowerShell in the repository.
+3. Run the bootstrap in the repository folder.
 
    ```powershell
    npm run bootstrap
@@ -189,15 +201,17 @@ Use this sequence when `.env` must be rebuilt or the interactive bootstrap canno
    Copy-Item .env.example .env
    ```
 
-2. Generate three distinct secrets. This command prints a 96-character random value; run it once per key.
+2. Generate three distinct secrets. This command prints a 96-character value from the cryptographic random number generator; run it once per key.
 
    ```powershell
-   -join (1..48 | ForEach-Object { '{0:x2}' -f (Get-Random -Maximum 256) })
+   -join ([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(48) | ForEach-Object { '{0:x2}' -f $_ })
    ```
+
+   The command requires PowerShell 7. In Windows PowerShell 5.1, use `$b = New-Object byte[] 48; [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); -join ($b | ForEach-Object { '{0:x2}' -f $_ })`.
 
 3. Set `INSTANCE_MASTER_KEY` (at least 32 characters), `ADMIN_API_KEY`, and `JMXQ_MCPAPI_KEY` in `.env`. When recovering an existing installation, keep the original `INSTANCE_MASTER_KEY`; a new one cannot read the existing `data/instances.enc`.
 
-4. Build and install the service.
+4. Check that `.env` contains `ADMIN_API_ENABLED=true`, then build and install the service in an elevated PowerShell.
 
    ```powershell
    npm run service:update
@@ -226,6 +240,16 @@ Select **New instance**, enter a stable name (agents use this name), and choose 
 - For `BASIC`, `NTLM`, and `SSO`, enter the full OData V4 service root of your Business Central server instance. A missing trailing slash is added automatically. Do not add a Company to the Base URL.
 - For `OAUTH`, enter the Entra ID directory ID as Tenant ID and the Business Central Online environment name, for example `Production` or `Sandbox`. The server builds `https://api.businesscentral.dynamics.com/v2.0/<tenantId>/<environment>/ODataV4/`.
 - For `SSO`, the service must run under a suitable domain account, see [Service Account for SSO](#service-account-for-sso).
+
+### Preparing OAuth for Business Central Online
+
+`OAUTH` uses the client credentials flow with the scope `https://api.businesscentral.dynamics.com/.default`. Prepare it once per tenant:
+
+1. In the Entra admin center, create an **App registration** (single tenant). Note the **Directory (tenant) ID** and the **Application (client) ID**.
+2. Under **Certificates & secrets**, create a client secret and copy its value. Note the expiry date; the Instance stops working when the secret expires.
+3. Under **API permissions**, add **Dynamics 365 Business Central** > **Application permissions** > `API.ReadWrite.All`, then select **Grant admin consent**.
+4. In Business Central, open **Microsoft Entra Applications**, create a card with the client ID, set the state to **Enabled**, assign the permission set `JMXQ_JMXQuery` and the data permissions the agents need, and select **Grant Consent**.
+5. Create the Instance in the Admin GUI with tenant ID, client ID, client secret, and environment name.
 
 ### Selecting the Technical Company
 
@@ -376,6 +400,8 @@ If any step fails, the update stops and the running service is left unchanged. B
 
 To change ports or keys, run `npm run bootstrap` instead; `service:update` never modifies `.env`.
 
+For a ZIP installation, download and extract the new version, copy it over the existing folder while keeping `.env`, `data/`, and `logs/`, then run `npm run service:update`.
+
 ### Restarting
 
 ```powershell
@@ -457,8 +483,8 @@ Stored passwords and client secrets are masked. The reveal icon asks for the Adm
 | --- | --- | --- |
 | `MCP_HOST` | Listening interface. Bootstrap sets `0.0.0.0` (all interfaces). | `127.0.0.1` |
 | `MCP_PORT` | Port for the Admin GUI and SSE. | `5000` |
-| `MCP_STREAMABLE_PORT` | Separate port for Streamable HTTP. | unset |
-| `MCP_CORS_ORIGINS` | Comma-separated browser origins allowed to call the server. | local origins |
+| `MCP_STREAMABLE_PORT` | Separate port for Streamable HTTP. When unset, Streamable HTTP runs on `MCP_PORT`. Bootstrap sets `5001`. | unset |
+| `MCP_CORS_ORIGINS` | Comma-separated browser origins allowed to call the server. Bootstrap adds the local origins and the computer name with `MCP_PORT`. | local origins |
 | `JMXQ_MCPAPI_KEY` | Key for MCP clients. | unset |
 | `ADMIN_API_ENABLED` | Enables the Admin GUI and Admin API. | `false` |
 | `ADMIN_API_KEY` | Key for the Admin GUI. Required when the Admin API is enabled. | unset |
@@ -471,6 +497,7 @@ Stored passwords and client secrets are masked. The reveal icon asks for the Adm
 | `LOG_SCRIPT_MAX_LENGTH` | Maximum logged script length. | `4000` |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, or `error`. | `info` |
 | `MCP_STDIO` | Stdio transport for locally launched clients: `auto`, `on`, or `off`. The service always uses `off`. | `auto` |
+| `JMXQ_STDIO_ONLY` | `true` starts only the Stdio transport without HTTP listeners. Set it only in the client configuration of Claude Desktop, not in `.env`. | unset |
 
 ### Network Access and Firewall
 
@@ -479,6 +506,14 @@ Bootstrap configures the server for the local network (`MCP_HOST=0.0.0.0`). Prot
 - Allow inbound traffic only in the **Private** profile and only from trusted client addresses.
 - Open `MCP_STREAMABLE_PORT` for MCP clients. Open `MCP_PORT` only if the Admin GUI must be reachable from other computers.
 - Never expose the server to the internet. Use a reverse proxy with TLS for access beyond the local network.
+
+Example rule for the Streamable HTTP port; adjust the port and the client network:
+
+```powershell
+New-NetFirewallRule -DisplayName 'JMX-QUERY MCP Server (Streamable HTTP)' `
+  -Direction Inbound -Protocol TCP -LocalPort 5001 `
+  -Profile Private,Domain -RemoteAddress 192.168.10.0/24 -Action Allow
+```
 
 To allow access only from the server itself, set `MCP_HOST=127.0.0.1` and run `npm run service:update`. Running `npm run bootstrap` again resets it to `0.0.0.0`.
 
@@ -496,9 +531,9 @@ Back up these files, ideally with the service stopped:
 
 To restore on the same or a new server:
 
-1. Install the server as described in [Installation](#installation), or stop the existing service.
+1. On a new server, install the tools and clone the repository (steps 1 and 2 of [Standard Installation](#standard-installation)), but do not run Bootstrap. On the existing server, stop the service.
 2. Copy `.env`, `data/instances.enc`, and optionally `logs/` into the repository folder.
-3. Run `npm run service:update`.
+3. Run `npm run service:update` in an elevated PowerShell. It installs dependencies, builds the server, and installs the service with the restored configuration.
 4. Log in to the Admin GUI and verify the Instances with the [Tool Tester](#tool-tester).
 
 ## Troubleshooting
